@@ -127,6 +127,15 @@
   \item Fixed import of translating bones (e.g. Howler's tongue) failing due to connected bones.
  \end{itemize}
 
+ \subsection*{next version}
+ \begin{itemize}
+  \item Added a faster \texttt{.gla} animation import mode that reads sequences from an
+  \texttt{animation.cfg} file into separate NLA strips/actions, instead of importing every frame
+  as one large action.
+  \item The Ghoul 2 Animation Metadata exporter can now export from NLA strips, in addition to
+  timeline markers.
+ \end{itemize}
+
  \subsection*{2.0.0}
  \begin{itemize}
   \item Fixed disabling the addon leaving its Ghoul 2 Animation Metadata export menu entry in place.
@@ -344,8 +353,13 @@ normally not children of the upper arms) into something easier to animate while 
 as the ``gla reference'' export setting is set correctly.
 
 \paragraph*{Animations}
-Choose whether to import no animation, the entire file, or just a range; selecting ``Range'' keeps Blender from
-loading all 20,000+ frames when you're only interested in a part of the sequence.
+Choose whether to import no animation, sequences from an \texttt{animation.cfg} next to the .gla, the entire
+file, or just a range. ``Cfg'' is the fastest option for a file with many animations: instead of importing
+every frame into one giant action, it creates one action per sequence, placed as an NLA strip on the
+Armature (see the NLA Editor and the Dopesheet's Action tab for the resulting ``Loop''/``FPS'' properties per
+sequence). ``All'' and ``Range'' both import every frame into a single action instead, and are considerably
+slower for files with many sequences; ``Range'' at least keeps Blender from loading all 20,000+ frames when
+you're only interested in a part of the sequence.
 
 \paragraph*{Start frame}
 When importing a range, set this to the zero-based frame where you want to begin (e.g., ``100'' to start at frame 100).
@@ -412,12 +426,18 @@ it replaces. Leave this empty only when creating a new skeleton with no existing
  Animation metadata (.cfg)'' in the Search Window opened by default with Space.
  
  GLA files only contain tons of frames. In order for the game to know which ones belong to which animation
- a separate file is used -- the animation.cfg. To automatically create that, add a Time Marker in the Timeline
- (default shortcut: M) and rename it to the name of the animation starting there (default: CTRL+M), then
- use this operator.
- 
+ a separate file is used -- the animation.cfg. This operator can generate it from either NLA strips or
+ timeline markers, see ``Source'' below.
+
  \subsubsection*{Settings}
- 
+
+ \paragraph*{Source}
+ ``NLA Strips'' (the default) reads sequences from the Armature's NLA strips -- exactly what ``Cfg''-mode
+ GLA/GLM import produces, and what the ``Loop''/``FPS'' properties on the NLA Editor's Strip tab (or the
+ Dopesheet's Action tab) control. ``Frame Markers'' instead reads sequences from the Timeline's Time Markers:
+ add one (default shortcut: M) and rename it to the name of the animation starting there (default: CTRL+M)
+ for each sequence; looping and FPS cannot be set this way and are exported as ``don't loop''/the scene's FPS.
+
  \paragraph*{Offset}
  If you plan to merge your animation with an existing one, the animation starts will be off by the number of
  frames of the file you've merged yours into. That's what this offset is for: It will be added to the frame
