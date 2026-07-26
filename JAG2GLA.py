@@ -591,6 +591,13 @@ class MdxaAnimation:
                     nextProgressDisplayTime = time.time() + PROGRESS_UPDATE_INTERVAL
 
                 for i in range(sequence.num_frames):
+                    # Keep the scene's current frame in sync with the action-local frame we're
+                    # about to key: with animData.action assigned directly (not via NLA tweak
+                    # mode), pose.visual_transform_apply evaluates the active action at whatever
+                    # frame the scene is currently on, not the frame passed to keyframe_insert
+                    # below - leaving it stale (e.g. at frame 1 from a previous sequence) corrupts
+                    # exactly the first frame of every sequence after the first.
+                    scene.frame_set(i)
                     # absolute offset matrices by bone index
                     offsets: Dict[int, mathutils.Matrix] = {}
                     for index in hierarchyOrder:
