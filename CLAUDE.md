@@ -43,9 +43,9 @@ files, compare). If asked to add tests, see "Testing" below for the intended dir
   Python formatter and pyright type checking at `standard` mode. `make format` runs `autopep8 --in-place`
   over the same file set; `make pep8` runs `pycodestyle` in check-only mode (what CI's `pep8` job runs).
 
-## Writing comments, commit messages, and PR descriptions
+## Writing comments, commit messages, PR descriptions, and issues
 
-Keep all three succinct: state the fact/change, skip restating what the diff already shows. A comment
+Keep all four succinct: state the fact/change, skip restating what the diff already shows. A comment
 should carry the one thing the code alone doesn't (a non-obvious *why*), not a narration of the *what*.
 
 ### Known Blender version support
