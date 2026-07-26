@@ -1,9 +1,17 @@
 import os
 import sys
 import tempfile
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import testutil  # noqa: E402 - path must be set up first
+
+if TYPE_CHECKING:
+    import bpy
+    import JAG2AnimationCFG
+    import JAG2GLA
+    import JAG2GLM
+    import JAG2Scene
 
 addon = testutil.import_addon()
 addon.register()  # registers the g2_prop PointerProperty (JAG2Panels) needed by Scene/GLM/GLA
@@ -15,7 +23,7 @@ SKELETON_REL = "models/testcases/simpleskel/simpleskel"
 MODEL_REL = "models/testcases/testmodel/model"
 
 
-def _export(scene, basepath):
+def _export(scene: "JAG2Scene.Scene", basepath: str) -> None:
     """Shared by case_export and case_roundtrip: export skeleton, then model, to `basepath`."""
     os.makedirs(os.path.join(basepath, "models", "testcases", "simpleskel"), exist_ok=True)
     os.makedirs(os.path.join(basepath, "models", "testcases", "testmodel"), exist_ok=True)
@@ -35,7 +43,7 @@ def _export(scene, basepath):
         raise AssertionError(f"saveToGLM failed: {message}")
 
 
-def _load_glm(basepath):
+def _load_glm(basepath: str) -> "JAG2GLM.GLM":
     glm = addon.JAG2GLM.GLM()
     success, message = glm.loadFromFile(os.path.join(basepath, MODEL_REL + ".glm"))
     if not success:
@@ -43,7 +51,7 @@ def _load_glm(basepath):
     return glm
 
 
-def _load_gla(basepath):
+def _load_gla(basepath: str) -> "JAG2GLA.GLA":
     gla = addon.JAG2GLA.GLA()
     success, message = gla.loadFromFile(
         os.path.join(basepath, SKELETON_REL + ".gla"),
@@ -54,11 +62,11 @@ def _load_gla(basepath):
     return gla
 
 
-def case_smoke():
+def case_smoke() -> None:
     print(f"[test] Imported jediacademy OK: {addon.bl_info['name']}")
 
 
-def case_export():
+def case_export() -> None:
     import bpy
     bpy.ops.wm.open_mainfile(filepath=os.path.join(TESTDATA, "g2model.blend"))
 
@@ -92,7 +100,7 @@ def case_export():
 _LEGACY_G2_KEYS = ("g2_prop_name", "g2_prop_shader", "g2_prop_tag", "g2_prop_off", "g2_prop_scale")
 
 
-def case_migration():
+def case_migration() -> None:
     """g2model.blend predates the g2_prop PointerProperty rework -- opening it should migrate
     its legacy flat g2_prop_* keys via the load_post handler (JAG2Panels), not just leave
     objects looking unconfigured. g2model.blend only has legacy data on its mesh surfaces (its
@@ -115,7 +123,7 @@ def case_migration():
     testutil.check(mismatches)
 
 
-def case_migration_armature_scale():
+def case_migration_armature_scale() -> None:
     """Synthetic counterpart to case_migration's mesh coverage: a fresh armature object with a
     raw legacy g2_prop_scale key (as an old-scheme file would have) should get it migrated into
     g2_prop.scale by JAG2Panels.migrateLegacyG2Props(), same as the load_post handler would do."""
@@ -139,7 +147,7 @@ def case_migration_armature_scale():
     testutil.check(mismatches)
 
 
-def case_already_converted():
+def case_already_converted() -> None:
     """A file already saved under the new g2_prop scheme (no legacy keys left at all) should
     export identically to g2model.blend, independent of the migration path above."""
     import bpy
@@ -167,7 +175,7 @@ def case_already_converted():
     testutil.check(other_glm_mismatches + testutil.compare_gla(actual_gla, expected_gla))
 
 
-def _system_props(obj):
+def _system_props(obj: "bpy.types.Object") -> Optional[Dict[str, Any]]:
     """Blender 5.0+ moved bpy.props-registered properties to a separate storage no longer
     visible via keys()/"in" -- introspect it directly where available so the materialization
     check below actually covers that storage too, not just the pre-5.0 dict view."""
@@ -178,7 +186,7 @@ def _system_props(obj):
     return dict(sys_props) if sys_props is not None else {}
 
 
-def case_no_passive_materialization():
+def case_no_passive_materialization() -> None:
     """Regression test for the bug this branch fixes: merely checking whether an object has
     Ghoul 2 properties must never itself create/persist any data on it."""
     import bpy
@@ -212,7 +220,7 @@ def case_no_passive_materialization():
     testutil.check(mismatches)
 
 
-def case_roundtrip():
+def case_roundtrip() -> None:
     scene = addon.JAG2Scene.Scene(REFERENCE_BASEPATH)
     success, message = scene.loadFromGLA(SKELETON_REL, loadAnimations=addon.JAG2GLA.AnimationLoadMode.ALL)
     if not success:
@@ -242,7 +250,7 @@ def case_roundtrip():
     testutil.check(testutil.compare_glm(actual_glm, expected_glm) + testutil.compare_gla(actual_gla, expected_gla))
 
 
-def _load_animation_cfg(cfg_dir):
+def _load_animation_cfg(cfg_dir: str) -> "JAG2AnimationCFG.AnimationCFG":
     cfg = addon.JAG2AnimationCFG.AnimationCFG()
     success, message = cfg.load_from_cfg(cfg_dir)
     if not success:
@@ -250,7 +258,7 @@ def _load_animation_cfg(cfg_dir):
     return cfg
 
 
-def case_nla_export():
+def case_nla_export() -> None:
     """simpleskel_nla.blend (see tests/tools/generate_simpleskel_nla_blend.py) was produced by
     importing simpleskel.gla via AnimationLoadMode.CFG, which splits animation.cfg's sequences
     across NLA tracks/actions instead of one big Action. Exporting via GLAMetaExport's NLA source
@@ -289,7 +297,7 @@ def case_nla_export():
     testutil.check(mismatches)
 
 
-def case_nla_roundtrip():
+def case_nla_roundtrip() -> None:
     """simpleskel_nla.blend's skeleton was materialized via CFG-mode import (NLA tracks/actions,
     not one continuous Action) -- exporting it back to a .gla should still reproduce the exact
     same per-frame bone transforms as the original file, since Blender's NLA stack evaluation
