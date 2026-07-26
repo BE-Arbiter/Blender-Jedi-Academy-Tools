@@ -527,9 +527,9 @@ class MdxaAnimation:
             nla_seqence_tracks = []
             nla_stills_tracks = []
             # create NLA tracks keeping track of all animations
-            armature.animation_data_create()
-            armature.animation_data.use_nla = True
-            nla_track = armature.animation_data.nla_tracks.new()
+            animData = armature.animation_data_create()
+            animData.use_nla = True
+            nla_track = animData.nla_tracks.new()
             nla_track.name = "Sequences Layer 1"
             nla_track.select = True
             # Only make the first layer visable
@@ -537,7 +537,7 @@ class MdxaAnimation:
             nla_seqence_tracks.append(nla_track)
 
             # NLA strips can't be 0 frames long, so keep them seperated
-            nla_track = armature.animation_data.nla_tracks.new()
+            nla_track = animData.nla_tracks.new()
             nla_track.name = "Stills Layer 1"
             nla_stills_tracks.append(nla_track)
 
@@ -548,16 +548,16 @@ class MdxaAnimation:
                 slot = action.slots.get("Armature")
                 if not slot:
                     slot = action.slots.new('OBJECT', "Armature")
-                armature.animation_data.action = action
-                armature.animation_data.action_slot = slot
+                animData.action = action
+                animData.action_slot = slot
                 strip = None
                 nla_track_index = 1
                 # pick a nla track that can hold the animation, overlapping strips is not possible
                 while strip is None and nla_track_index < 9:
                     track_name = "Stills Layer {}".format(nla_track_index) if sequence.num_frames == 1 else "Sequences Layer {}".format(nla_track_index)
-                    nla_track = armature.animation_data.nla_tracks.get(track_name)
+                    nla_track = animData.nla_tracks.get(track_name)
                     if nla_track is None:
-                        nla_track = armature.animation_data.nla_tracks.new()
+                        nla_track = animData.nla_tracks.new()
                         nla_track.name = track_name
                     nla_track.select = True
                     try:
@@ -613,8 +613,8 @@ class MdxaAnimation:
                         pose_bone.keyframe_insert('location', frame=i)
                         pose_bone.keyframe_insert('rotation_quaternion', frame=i)
             # remove action from the animation data to stop previewing a single action
-            armature.animation_data.action_slot = None  # type: ignore
-            armature.animation_data.action = None  # type: ignore
+            animData.action_slot = None  # type: ignore
+            animData.action = None  # type: ignore
 
             # enter object mode when done
             bpy.ops.object.mode_set(mode='OBJECT', toggle=False)

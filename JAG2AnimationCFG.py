@@ -70,6 +70,7 @@ class AnimationSequence():
     
     @classmethod
     def from_blender_strip(cls, nla_strip: bpy.types.NlaStrip, length_difference: int, fps: int, offset: int = 0):
+        assert nla_strip.action is not None
         new_frame = cls()
         new_frame.name = nla_strip.action.name
         new_frame.start_frame = int(nla_strip.frame_start + offset)

@@ -94,3 +94,11 @@ def FindFile(relpath, prefix, extensions):
 
 def FileExists(path: str) -> bool:
     return os.path.isfile(path)
+
+# returns the absolute directory (with trailing separator) containing a game-relative file, given
+# its prefix - e.g. for locating animation.cfg next to a .gla file
+
+
+def PathToFile(relpath, base_path):
+    absPath = AbsPath(relpath, base_path)
+    return os.path.dirname(absPath) + os.path.sep
