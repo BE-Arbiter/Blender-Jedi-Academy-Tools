@@ -12,7 +12,7 @@ import sys
 import bpy
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import testutil  # noqa: E402
+import testutil  # noqa: E402 - path must be set up first
 
 addon = testutil.import_addon()
 addon.register()
