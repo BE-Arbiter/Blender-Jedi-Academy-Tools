@@ -17,11 +17,12 @@
 # ##### END GPL LICENSE BLOCK #####
 
 from .mod_reload import reload_modules
-reload_modules(locals(), __package__, ["JAStringhelper", "JAG2Constants", "JAG2Math", "MrwProfiler", "JAG2Panels"], [".casts", ".error_types"])  # nopep8
+reload_modules(locals(), __package__, ["JAStringhelper", "JAG2AnimationCFG", "JAG2Constants", "JAG2Math", "MrwProfiler", "JAG2Panels"], [".casts", ".error_types"])  # nopep8
 
 from . import JAStringhelper
 from . import JAG2Constants
 from . import JAG2Math
+from . import JAG2AnimationCFG
 from . import MrwProfiler
 from . import JAG2Panels
 from .casts import optional_cast, downcast, bpy_generic_cast, matrix_getter_cast, matrix_overload_cast, vector_getter_cast, vector_overload_cast
@@ -165,7 +166,7 @@ class MdxaBone:
         boneIndicesByName[self.name] = self.index
 
         # parent is -1 by default - change if there is one.
-        if editbone.parent != None:
+        if editbone.parent is not None:
             self.parent = boneIndicesByName[editbone.parent.name]
             parent = bones[self.parent]
             parent.numChildren += 1
@@ -266,7 +267,7 @@ class MdxaSkel:
 
     def fitsArmature(self, armature) -> Tuple[bool, ErrorMessage]:
         for bone in self.bones:
-            if not bone.name in armature.bones:
+            if bone.name not in armature.bones:
                 return False, ErrorMessage(f"Bone {bone.name} not found in existing skeleton_root armature!")
         return True, NoError
 
@@ -477,7 +478,7 @@ class MdxaAnimation:
         assert (file.tell() == header.ofsCompBonePool)
         self.bonePool.saveToFile(file)
 
-    def saveToBlender(self, skeleton: MdxaSkel, armature: bpy.types.Object, scale):
+    def saveToBlender(self, skeleton: MdxaSkel, armature: bpy.types.Object, scale, animations: Optional[JAG2AnimationCFG.AnimationCFG] = None):
         import time
         startTime = time.time()
         #   Bone Position Set Order
@@ -516,63 +517,171 @@ class MdxaAnimation:
         ])
 
         # show progress every 1000 steps, but at least 10 times)
-        progressStep = min(1000, round(numFrames / 10))
         nextProgressDisplayTime = time.time() + PROGRESS_UPDATE_INTERVAL
-        lastFrameNum = 0
 
         #   Export animation
-        for frameNum, frame in enumerate(self.frames):
-            # show progress bar / remaining time
-            if time.time() >= nextProgressDisplayTime:
-                numProcessedFrames = frameNum - lastFrameNum
-                framesRemaining = numFrames - frameNum
-                # only take the frames since the last update into account since the speed varies.
-                # speed's roughly inversely proportional to the current frame number so I could use that to predict remaining time...
-                timeRemaining = PROGRESS_UPDATE_INTERVAL * framesRemaining / numProcessedFrames
+        if animations:
+            # enter pose mode to make edits to the bone transforms
+            bpy.ops.object.mode_set(mode='POSE', toggle=False)
+            lastSequenceNum = 0
+            nla_seqence_tracks = []
+            nla_stills_tracks = []
+            # create NLA tracks keeping track of all animations
+            animData = armature.animation_data_create()
+            animData.use_nla = True
+            nla_track = animData.nla_tracks.new()
+            nla_track.name = "Sequences Layer 1"
+            nla_track.select = True
+            # Only make the first layer visable
+            nla_track.is_solo = True
+            nla_seqence_tracks.append(nla_track)
 
-                print("Frame {}/{} - {:.2%} - remaining time: ca. {:.0f}m {:.0f}s".format(
-                    frameNum, numFrames, frameNum / numFrames, timeRemaining // 60, timeRemaining % 60))
+            # NLA strips can't be 0 frames long, so keep them seperated
+            nla_track = animData.nla_tracks.new()
+            nla_track.name = "Stills Layer 1"
+            nla_stills_tracks.append(nla_track)
 
-                lastFrameNum = frameNum
-                nextProgressDisplayTime = time.time() + PROGRESS_UPDATE_INTERVAL
+            for sequenceNum, sequence in enumerate(animations.sequences):
+                action = bpy.data.actions.new(sequence.name)
+                action.g2_sequence_prop.loop_frame = sequence.loop  # pyright: ignore[reportAttributeAccessIssue]
+                action.g2_sequence_prop.fps = sequence.fps  # pyright: ignore[reportAttributeAccessIssue]
+                # Action Slots (multi-user actions) were only introduced in Blender 4.4 - older
+                # supported versions (down to 4.1) have neither Action.slots nor
+                # AnimData/NlaStrip.action_slot, and don't need them either.
+                slot = None
+                if hasattr(action, "slots"):
+                    slot = action.slots.get("Armature")
+                    if not slot:
+                        slot = action.slots.new('OBJECT', "Armature")
+                animData.action = action
+                if hasattr(animData, "action_slot"):
+                    animData.action_slot = slot
+                strip = None
+                nla_track_index = 1
+                # pick a nla track that can hold the animation, overlapping strips is not possible
+                while strip is None and nla_track_index < 9:
+                    track_name = "Stills Layer {}".format(nla_track_index) if sequence.num_frames == 1 else "Sequences Layer {}".format(nla_track_index)
+                    nla_track = animData.nla_tracks.get(track_name)
+                    if nla_track is None:
+                        nla_track = animData.nla_tracks.new()
+                        nla_track.name = track_name
+                    nla_track.select = True
+                    try:
+                        strip = nla_track.strips.new(action.name, sequence.start_frame, action)
+                        strip.action_frame_start = 0
+                        strip.action_frame_end = sequence.num_frames - 1
+                        if hasattr(strip, "action_slot"):
+                            strip.action_slot = slot
+                    except Exception:
+                        strip = None
+                    nla_track_index += 1
 
-            # set current frame
-            scene.frame_set(frameNum)
+                # show progress bar / remaining time
+                if time.time() >= nextProgressDisplayTime:
+                    numProcessedFrames = sequenceNum - lastSequenceNum
+                    framesRemaining = len(animations.sequences) - sequenceNum
+                    # only take the frames since the last update into account since the speed varies.
+                    # speed's roughly inversely proportional to the current frame number so I could use that to predict remaining time...
+                    timeRemaining = PROGRESS_UPDATE_INTERVAL * framesRemaining / numProcessedFrames
 
-            # absolute offset matrices by bone index
-            offsets: Dict[int, mathutils.Matrix] = {}
-            for index in hierarchyOrder:
-                bpy.ops.object.mode_set(mode='POSE', toggle=False)
-                mdxaBone = skeleton.bones[index]
-                assert (mdxaBone.index == index)
-                bonePoolIndex = frame.boneIndices[index]
-                # get offset transformation matrix, relative to parent
-                offset = downcast(List[JAG2Math.CompBone], self.bonePool.bones)[bonePoolIndex].matrix
-                # turn into absolute offset matrix (already is if this is top level bone)
-                if mdxaBone.parent != -1:
-                    offset = matrix_overload_cast(offsets[mdxaBone.parent] @ offset)
-                # save this absolute offset for use by children
-                offsets[index] = offset
-                # calculate the actual position
-                transformation = matrix_overload_cast(offset @ basePoses[index])
-                # flip axes as required for blender bone
-                JAG2Math.GLABoneRotToBlender(transformation)
+                    print("Sequence {}/{} - {:.2%} - remaining time: ca. {:.0f}m {:.0f}s".format(
+                        sequenceNum, len(animations.sequences), sequenceNum / len(animations.sequences), timeRemaining // 60, timeRemaining % 60))
 
-                pose_bone = bones[index]
-                # pose_bone.matrix = transformation * scaleMatrix
-                pose_bone.matrix = transformation
-                # in the _humanoid face, the scale gets changed. that messes the re-export up. FIXME: understand why. Is there a problem?
-                pose_bone.scale = [1, 1, 1]
-                pose_bone.keyframe_insert('location')
-                pose_bone.keyframe_insert('rotation_quaternion')
-                # hackish way to force the matrix to update. FIXME: this seems to slow the process down a lot
-                bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+                    lastSequenceNum = sequenceNum
+                    nextProgressDisplayTime = time.time() + PROGRESS_UPDATE_INTERVAL
 
-        scene.frame_current = 1
+                for i in range(sequence.num_frames):
+                    # Keep the scene's current frame in sync with the action-local frame we're
+                    # about to key: with animData.action assigned directly (not via NLA tweak
+                    # mode), pose.visual_transform_apply evaluates the active action at whatever
+                    # frame the scene is currently on, not the frame passed to keyframe_insert
+                    # below - leaving it stale (e.g. at frame 1 from a previous sequence) corrupts
+                    # exactly the first frame of every sequence after the first.
+                    scene.frame_set(i)
+                    # absolute offset matrices by bone index
+                    offsets: Dict[int, mathutils.Matrix] = {}
+                    for index in hierarchyOrder:
+                        mdxaBone = skeleton.bones[index]
+                        assert (mdxaBone.index == index)
+                        bonePoolIndex = self.frames[sequence.start_frame + i].boneIndices[index]
+                        # get offset transformation matrix, relative to parent
+                        offset = downcast(List[JAG2Math.CompBone], self.bonePool.bones)[bonePoolIndex].matrix
+                        # turn into absolute offset matrix (already is if this is top level bone)
+                        if mdxaBone.parent != -1:
+                            offset = matrix_overload_cast(offsets[mdxaBone.parent] @ offset)
+                        # save this absolute offset for use by children
+                        offsets[index] = offset
+                        # calculate the actual position
+                        transformation = matrix_overload_cast(offset @ basePoses[index])
+                        # flip axes as required for blender bone
+                        JAG2Math.GLABoneRotToBlender(transformation)
+
+                        pose_bone = bones[index]
+                        # pose_bone.matrix = transformation * scaleMatrix
+                        pose_bone.matrix = transformation
+                        # in the _humanoid face, the scale gets changed. that messes the re-export up. FIXME: understand why. Is there a problem?
+                        pose_bone.scale = [1, 1, 1]
+                        # force the matrix to update, this is still slow, but faster than switching between pose and object mode
+                        bpy.ops.pose.visual_transform_apply()
+                    for pose_bone in bones:
+                        pose_bone.keyframe_insert('location', frame=i)
+                        pose_bone.keyframe_insert('rotation_quaternion', frame=i)
+            # remove action from the animation data to stop previewing a single action
+            if hasattr(animData, "action_slot"):
+                animData.action_slot = None  # type: ignore
+            animData.action = None  # type: ignore
+
+            # enter object mode when done
+            bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+        else:
+            lastFrameNum = 0
+            for frameNum, frame in enumerate(self.frames):
+                # show progress bar / remaining time
+                if time.time() >= nextProgressDisplayTime:
+                    numProcessedFrames = frameNum - lastFrameNum
+                    framesRemaining = numFrames - frameNum
+                    # only take the frames since the last update into account since the speed varies.
+                    # speed's roughly inversely proportional to the current frame number so I could use that to predict remaining time...
+                    timeRemaining = PROGRESS_UPDATE_INTERVAL * framesRemaining / numProcessedFrames
+
+                # set current frame
+                scene.frame_set(frameNum)
+
+                # absolute offset matrices by bone index
+                offsets: Dict[int, mathutils.Matrix] = {}
+                for index in hierarchyOrder:
+                    bpy.ops.object.mode_set(mode='POSE', toggle=False)
+                    mdxaBone = skeleton.bones[index]
+                    assert (mdxaBone.index == index)
+                    bonePoolIndex = frame.boneIndices[index]
+                    # get offset transformation matrix, relative to parent
+                    offset = downcast(List[JAG2Math.CompBone], self.bonePool.bones)[bonePoolIndex].matrix
+                    # turn into absolute offset matrix (already is if this is top level bone)
+                    if mdxaBone.parent != -1:
+                        offset = matrix_overload_cast(offsets[mdxaBone.parent] @ offset)
+                    # save this absolute offset for use by children
+                    offsets[index] = offset
+                    # calculate the actual position
+                    transformation = matrix_overload_cast(offset @ basePoses[index])
+                    # flip axes as required for blender bone
+                    JAG2Math.GLABoneRotToBlender(transformation)
+
+                    pose_bone = bones[index]
+                    # pose_bone.matrix = transformation * scaleMatrix
+                    pose_bone.matrix = transformation
+                    # in the _humanoid face, the scale gets changed. that messes the re-export up. FIXME: understand why. Is there a problem?
+                    pose_bone.scale = [1, 1, 1]
+                    pose_bone.keyframe_insert('location')
+                    pose_bone.keyframe_insert('rotation_quaternion')
+                    # hackish way to force the matrix to update. FIXME: this seems to slow the process down a lot
+                    bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
+
+            scene.frame_current = 1
 
 
 class AnimationLoadMode(Enum):
     NONE = 'NONE'
+    CFG = "CFG"
     ALL = 'ALL'
     RANGE = 'RANGE'
 
@@ -617,7 +726,7 @@ class GLA:
         profiler.stop("reading bone hierarchy")
         if loadAnimation != AnimationLoadMode.NONE:
             profiler.start("reading animations")
-            if loadAnimation == AnimationLoadMode.ALL:
+            if loadAnimation in [AnimationLoadMode.ALL, AnimationLoadMode.CFG]:
                 success, message = self.animation.loadFromFile(
                     file, self.header, 0, -1)
             else:
@@ -634,7 +743,7 @@ class GLA:
         self.header.name = gla_filepath_rel
 
         # find skeleton_root
-        if not "skeleton_root" in bpy.data.objects:
+        if "skeleton_root" not in bpy.data.objects:
             return False, ErrorMessage("No skeleton_root object found!")
         skeleton_object = bpy_generic_cast(bpy.types.Object, bpy.data.objects["skeleton_root"])
         self.skeleton_object = skeleton_object
@@ -691,7 +800,7 @@ class GLA:
                 newBonesToAdd = []
                 for bone in bonesToAdd:
                     # add bones whose parents have already been added
-                    if bone.parent == None or bone.parent.name in self.boneIndexByName:
+                    if bone.parent is None or bone.parent.name in self.boneIndexByName:
                         # create this bone
                         newBone = MdxaBone()
 
@@ -708,7 +817,7 @@ class GLA:
                     else:
                         newBonesToAdd.append(bone)
                 bonesToAdd = newBonesToAdd
-                if addedSomething == False:
+                if not addedSomething:
                     return False, ErrorMessage("Hierarchy error, failed to find bone parent (most likely a bug, actually)")
 
             # calculate bone file position offsets
@@ -842,7 +951,7 @@ class GLA:
         assert (file.tell() == self.header.ofsEnd)
         return True, NoError
 
-    def saveToBlender(self, scene_root: bpy.types.Object, useAnimation: bool, skeletonFixes: JAG2Constants.SkeletonFixes) -> Tuple[bool, ErrorMessage]:
+    def saveToBlender(self, scene_root: bpy.types.Object, useAnimation: bool, skeletonFixes: JAG2Constants.SkeletonFixes, animations: Optional[JAG2AnimationCFG.AnimationCFG] = None) -> Tuple[bool, ErrorMessage]:
         print("Applying skeleton/skeleton to Blender")
         profiler = MrwProfiler.SimpleProfiler(True)
         # default skeleton = no skeleton.
@@ -884,7 +993,7 @@ class GLA:
             # link the object to the current scene if necessary
             scene = bpy.context.scene
             assert scene is not None
-            if not self.skeleton_object.name in scene.collection.objects:
+            if self.skeleton_object.name not in scene.collection.objects:
                 scene.collection.objects.link(self.skeleton_object)
 
             # set its parent to the scene_root (not strictly speaking necessary but keeps output consistent)
@@ -905,7 +1014,7 @@ class GLA:
                     print("=== Profile stop ===")
                 else:
                     self.animation.saveToBlender(
-                        self.skeleton, self.skeleton_object, self.header.scale)
+                        self.skeleton, self.skeleton_object, self.header.scale, animations)
                 profiler.stop("applying animations")
 
             # that's all
@@ -940,6 +1049,6 @@ class GLA:
                 print("=== Profile stop ===")
             else:
                 self.animation.saveToBlender(
-                    self.skeleton, self.skeleton_object, self.header.scale)
+                    self.skeleton, self.skeleton_object, self.header.scale, animations)
             profiler.stop("applying animations")
         return True, NoError

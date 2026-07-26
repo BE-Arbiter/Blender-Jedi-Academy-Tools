@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import StringProperty, BoolProperty, FloatProperty, PointerProperty
+from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty, PointerProperty
 
 
 # -------------------------------------------------------------
@@ -38,6 +38,24 @@ class G2Props(bpy.types.PropertyGroup):
         min=0.0,
         subtype='PERCENTAGE',
         description="Skeleton scale (armature only)"
+    )  # type: ignore
+
+
+# Per-Action loop/fps metadata for animation.cfg NLA import/export, mirroring G2Props above --
+# a nested PropertyGroup + PointerProperty rather than raw bpy.types.Action.loop_frame/fps
+# assignment, since that raw-assignment style is exactly what Blender 5.0 broke for g2_prop
+# (see the legacy migration below).
+class G2SequenceProps(bpy.types.PropertyGroup):
+    loop_frame: BoolProperty(
+        name="Loop",
+        default=False,
+        description="Whether this sequence will loop"
+    )  # type: ignore
+
+    fps: IntProperty(
+        name="FPS",
+        default=30,
+        description="Sequence playback fps"
     )  # type: ignore
 
 
@@ -162,12 +180,60 @@ class G2PropertiesPanel(bpy.types.Panel):
             layout.prop(props, "scale")
 
 
+class G2NLAPropertiesPanel(bpy.types.Panel):
+    bl_label = "GLA Animation Properties"
+    bl_idname = "STRIP_PT_g2sequence_props"
+    bl_space_type = 'NLA_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Strip"
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        strip = context.active_nla_strip
+        return strip is not None and strip.action is not None
+
+    def draw(self, context: bpy.types.Context) -> None:
+        if (layout := self.layout) is None:
+            return
+        strip = context.active_nla_strip
+        assert strip is not None and strip.action is not None
+        props = strip.action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
+        layout.use_property_split = True
+        layout.prop(props, "loop_frame")
+        layout.prop(props, "fps")
+
+
+class G2ActionPropertiesPanel(bpy.types.Panel):
+    bl_label = "GLA Animation Properties"
+    bl_idname = "ACTION_PT_g2sequence_props"
+    bl_space_type = 'DOPESHEET_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Action"
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return context.active_action is not None
+
+    def draw(self, context: bpy.types.Context) -> None:
+        if (layout := self.layout) is None:
+            return
+        action = context.active_action
+        assert action is not None
+        props = action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
+        layout.use_property_split = True
+        layout.prop(props, "loop_frame")
+        layout.prop(props, "fps")
+
+
 # -------------------------------------------------------------
 #   REGISTRATION
 # -------------------------------------------------------------
 classes = (
     G2Props,
     G2PropertiesPanel,
+    G2SequenceProps,
+    G2NLAPropertiesPanel,
+    G2ActionPropertiesPanel,
 )
 
 
@@ -176,6 +242,7 @@ def register():
         bpy.utils.register_class(cls)
 
     bpy.types.Object.g2_prop = PointerProperty(type=G2Props)  # pyright: ignore[reportAttributeAccessIssue]
+    bpy.types.Action.g2_sequence_prop = PointerProperty(type=G2SequenceProps)  # pyright: ignore[reportAttributeAccessIssue]
 
     if _onLoadPost not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_onLoadPost)
@@ -186,5 +253,6 @@ def unregister():
         bpy.app.handlers.load_post.remove(_onLoadPost)
 
     del bpy.types.Object.g2_prop  # pyright: ignore[reportAttributeAccessIssue]
+    del bpy.types.Action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

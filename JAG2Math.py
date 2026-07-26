@@ -57,9 +57,9 @@ class Matrix:
         mat.to_4x4()
         self.rows = []
         for row in mat:
-            l = []
-            l.extend(row)  # pyright: ignore [reportArgumentType]  # vector is iterable
-            self.rows.append(l)
+            rowList = []
+            rowList.extend(row)  # pyright: ignore [reportArgumentType]  # vector is iterable
+            self.rows.append(rowList)
         del self.rows[3]
 
 

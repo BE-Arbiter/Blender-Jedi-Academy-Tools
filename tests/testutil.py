@@ -5,6 +5,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Callable, List, Optional, Set, Tuple, cast
 
 if TYPE_CHECKING:
+    import JAG2AnimationCFG
     import JAG2GLA
     import JAG2GLM
     import JAG2Math
@@ -200,6 +201,34 @@ def compare_gla(
                             f"frame {frame_index} bone '{name}': offset[{row}][{col}] differs: "
                             f"actual={a:.6f} expected={e:.6f} (atol={atol})"
                         )
+
+    return mismatches
+
+
+def compare_animation_cfg(actual: "JAG2AnimationCFG.AnimationCFG", expected: "JAG2AnimationCFG.AnimationCFG") -> List[str]:
+    """Structural comparison of two JAG2AnimationCFG.AnimationCFG objects. Returns a list of mismatch descriptions."""
+    mismatches = []
+
+    actual_by_name = {seq.name: seq for seq in actual.sequences}
+    expected_by_name = {seq.name: seq for seq in expected.sequences}
+
+    actual_names = set(actual_by_name)
+    expected_names = set(expected_by_name)
+    if actual_names != expected_names:
+        mismatches.append(
+            f"sequence names differ: missing={expected_names - actual_names} "
+            f"extra={actual_names - expected_names}"
+        )
+
+    for name in sorted(actual_names & expected_names):
+        actual_seq = actual_by_name[name]
+        expected_seq = expected_by_name[name]
+        for field in ("start_frame", "num_frames", "loop", "fps"):
+            actual_value = getattr(actual_seq, field)
+            expected_value = getattr(expected_seq, field)
+            if actual_value != expected_value:
+                mismatches.append(
+                    f"sequence '{name}': {field} differs: actual={actual_value} expected={expected_value}")
 
     return mismatches
 

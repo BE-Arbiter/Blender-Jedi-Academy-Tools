@@ -1,3 +1,6 @@
 [pycodestyle]
-# disable wrapping of long lines, our `# pyright: ignore` line comments can get long
-ignore = E501
+# specifying `ignore` replaces pycodestyle's own default ignore list rather than extending it, so
+# restate pycodestyle's defaults (E121,E123,E126,E226,E24,E704,W503,W504) here alongside E501 --
+# otherwise those checks turn on and flag pre-existing, stylistically-fine code.
+# E501: our `# pyright: ignore` line comments can get long.
+ignore = E121,E123,E126,E226,E24,E704,W503,W504,E501

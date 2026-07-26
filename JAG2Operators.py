@@ -17,7 +17,7 @@
 # ##### END GPL LICENSE BLOCK #####
 
 from .mod_reload import reload_modules
-reload_modules(locals(), __package__, ["JAG2Scene", "JAG2GLA", "JAFilesystem", "JAG2Panels"], [".JAG2Constants"])  # nopep8
+reload_modules(locals(), __package__, ["JAG2Scene", "JAG2GLA", "JAFilesystem", "JAG2Panels", "JAG2AnimationCFG"], [".JAG2Constants"])  # nopep8
 
 import bpy
 from typing import Set, Tuple, cast
@@ -25,6 +25,7 @@ from . import JAG2Scene
 from . import JAG2GLA
 from . import JAFilesystem
 from . import JAG2Panels
+from . import JAG2AnimationCFG
 from .JAG2Constants import SkeletonFixes
 from .casts import OperatorReturnItems
 
@@ -66,8 +67,9 @@ class GLMImport(bpy.types.Operator):
     ])  # pyright: ignore [reportInvalidTypeForm, reportArgumentType]
     loadAnimations: bpy.props.EnumProperty(name="animations", description="Whether to import all animations, some animations or only a range from the .gla. (Importing huge animations takes forever.)", default='NONE', items=[
         (JAG2GLA.AnimationLoadMode.NONE.value, "None", "Don't import animations.", 0),
-        (JAG2GLA.AnimationLoadMode.ALL.value, "All", "Import all animations", 1),
-        (JAG2GLA.AnimationLoadMode.RANGE.value, "Range", "Import a certain range of frames", 2)
+        (JAG2GLA.AnimationLoadMode.CFG.value, "Cfg", "Import animations from animations.cfg file", 1),
+        (JAG2GLA.AnimationLoadMode.ALL.value, "All (slow)", "Import all animations", 2),
+        (JAG2GLA.AnimationLoadMode.RANGE.value, "Range (slow)", "Import a certain range of frames", 3)
     ])  # pyright: ignore [reportInvalidTypeForm, reportArgumentType]
     startFrame: bpy.props.IntProperty(
         name="Start frame", description="If only a range of frames of the animation is to be imported, this is the first.", min=0)  # pyright: ignore [reportInvalidTypeForm]
@@ -95,6 +97,12 @@ class GLMImport(bpy.types.Operator):
         else:
             glafile = cast(str, self.glaOverride)
         loadAnimations = JAG2GLA.AnimationLoadMode[self.loadAnimations]
+        if loadAnimations == JAG2GLA.AnimationLoadMode.CFG:
+            cfg_file_path = JAFilesystem.PathToFile(glafile, basepath)
+            success, message = scene.loadFromCFG(cfg_file_path)
+        if not success:
+            self.report({'ERROR'}, message)
+            return {'FINISHED'}
         success, message = scene.loadFromGLA(
             glafile, loadAnimations, cast(int, self.startFrame), cast(int, self.numFrames))
         if not success:
@@ -141,8 +149,9 @@ class GLAImport(bpy.types.Operator):
     ])  # pyright: ignore [reportInvalidTypeForm, reportArgumentType]
     loadAnimations: bpy.props.EnumProperty(name="animations", description="Whether to import all animations, some animations or only a range from the .gla. (Importing huge animations takes forever.)", default='NONE', items=[
         (JAG2GLA.AnimationLoadMode.NONE.value, "None", "Don't import animations.", 0),
-        (JAG2GLA.AnimationLoadMode.ALL.value, "All", "Import all animations", 1),
-        (JAG2GLA.AnimationLoadMode.RANGE.value, "Range", "Import a certain range of frames", 2)
+        (JAG2GLA.AnimationLoadMode.CFG.value, "Cfg", "Import animations from animations.cfg file", 1),
+        (JAG2GLA.AnimationLoadMode.ALL.value, "All (slow)", "Import all animations", 2),
+        (JAG2GLA.AnimationLoadMode.RANGE.value, "Range (slow)", "Import a certain range of frames", 3)
     ])  # pyright: ignore [reportInvalidTypeForm, reportArgumentType]
     startFrame: bpy.props.IntProperty(
         name="Start frame", description="If only a range of frames of the animation is to be imported, this is the first.", min=0)  # pyright: ignore [reportInvalidTypeForm]
@@ -161,6 +170,14 @@ class GLAImport(bpy.types.Operator):
         # load GLA
         scene = JAG2Scene.Scene(basepath)
         loadAnimations = JAG2GLA.AnimationLoadMode[self.loadAnimations]
+        success = True
+        message = "Nothing"
+        if loadAnimations == JAG2GLA.AnimationLoadMode.CFG:
+            cfg_file_path = JAFilesystem.PathToFile(filepath, basepath)
+            success, message = scene.loadFromCFG(cfg_file_path)
+        if not success:
+            self.report({'ERROR'}, message)
+            return {'FINISHED'}
         success, message = scene.loadFromGLA(
             filepath, loadAnimations, self.startFrame, self.numFrames)
         if not success:
@@ -287,59 +304,33 @@ class GLAMetaExport(bpy.types.Operator):
     # properties
     filepath: bpy.props.StringProperty(
         name="File Path", description="The filename to export to", maxlen=1024, default="", subtype='FILE_PATH')  # pyright: ignore [reportInvalidTypeForm]
+    source: bpy.props.EnumProperty(name="source", description="Source for creating the animation frames", default='NLA', items=[
+        ("NLA", "NLA Strips", "Get all info from the NLA strips.", 0),
+        ("MARKERS", "Frame Markers", "Get all info from named timeline markers.", 1)
+    ])  # pyright: ignore [reportInvalidTypeForm, reportArgumentType]
     offset: bpy.props.IntProperty(
         name="Offset", description="Frame offset for the animations, e.g. 21376 if you plan on merging with Jedi Academy's _humanoid.gla", min=0, default=0)  # pyright: ignore [reportInvalidTypeForm]
 
     def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
         print("\n== GLA Metadata Export ==\n")
 
+        export_cfg = JAG2AnimationCFG.AnimationCFG()
         scene = context.scene
-        assert scene is not None
-        startFrame = scene.frame_start
-        endFrame = scene.frame_end
-        fps = scene.render.fps
+        if scene is None:
+            self.report({'ERROR'}, 'must have an active scene')
+            return {'FINISHED'}
+        if self.source == "NLA":
+            success, message = export_cfg.from_blender_nla_tracks(scene, self.offset)
+        else:
+            success, message = export_cfg.from_blender_markers(scene, self.offset)
+        if not success:
+            self.report({'ERROR'}, message)
+            return {'FINISHED'}
 
-        class Marker:
-            def __init__(self, blenderMarker):
-                self.name = blenderMarker.name
-                self.start = blenderMarker.frame - startFrame  # frames start at 0
-                self.len = None  # to be determined
-
-        markers = []
-        maxLen = 23  # maximum name length, default minimum is 24
-        for marker in scene.timeline_markers:
-            if marker.frame >= startFrame and marker.frame <= endFrame:
-                maxLen = max(maxLen, len(marker.name))
-                markers.append(Marker(marker))
-
-        if len(markers) == 0:
-            self.report({'ERROR'}, 'No timeline markers found! Add Markers to label animations.')
-
-        # sort by frame
-        markers.sort(key=lambda marker: marker.start)
-
-        # determine length
-        last = None
-        for marker in markers:
-            if last:
-                last.len = marker.start - last.start
-            last = marker
-        assert (last)  # otherwise len(markers) == 0
-        last.len = endFrame - last.start
-
-        file = open(self.filepath, "w")
-
-        # name, start, length, loop (always false, cannot be set yet), fps (always scene's fps currently)
-        pattern = "{:<" + str(maxLen) + "} {:<7} {:<7} {:<7} {}\n"
-
-        file.write("// Animation Data generated from Blender Markers\n")
-        file.write(pattern.format("// name", "start", "length", "loop", "fps"))
-
-        for marker in markers:
-            file.write(pattern.format(marker.name, marker.start +
-                       self.offset, marker.len, 0, fps))
-
-        file.close()
+        with open(self.filepath, "w") as file:
+            file.write("// Animation Data generated from Blender Markers\n")
+            file.write("// name\t\tstart\tlength\tloop\tfps\n")
+            file.write(str(export_cfg))
 
         return {'FINISHED'}
 
@@ -348,6 +339,7 @@ class GLAMetaExport(bpy.types.Operator):
         assert wm is not None
         wm.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
 
 class OBJECT_OT_AddG2Properties(bpy.types.Operator):
     bl_idname = "object.add_g2_properties"

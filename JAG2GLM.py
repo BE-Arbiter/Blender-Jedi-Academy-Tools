@@ -85,11 +85,11 @@ def getBoneWeights(vertex: bpy.types.MeshVertex, meshObject: bpy.types.Object, a
     modifier: Optional[bpy.types.ArmatureModifier] = None
     for mod in meshObject.modifiers:
         if mod.type == 'ARMATURE':
-            if modifier != None:
+            if modifier is not None:
                 raise GetBoneWeightException(
                     f"Multiple armature modifiers on {meshObject.name}!")
             modifier = downcast(bpy.types.ArmatureModifier, mod)
-    if modifier == None:
+    if modifier is None:
         raise GetBoneWeightException(
             f"{meshObject.name} has no armature modifier!")
     armature = downcast(bpy.types.Armature, armatureObject.data)
@@ -249,7 +249,7 @@ class MdxmSurfaceData:
         if object.g2_prop.tag:  # pyright: ignore [reportAttributeAccessIssue]
             self.flags |= JAG2Constants.SURFACEFLAG_TAG
         # set parent
-        if object.parent != None and getName(object.parent) in surfaceIndexMap:
+        if object.parent is not None and getName(object.parent) in surfaceIndexMap:
             self.parentIndex = surfaceIndexMap[getName(object.parent)]
         # set children
         self.numChildren = 0
@@ -440,7 +440,7 @@ class MdxmVertex:
         # weight/bone indices
 
         assert (len(self.weights) == 0)
-        if armatureObject == None:  # default skeleton
+        if armatureObject is None:  # default skeleton
             self.weights.append(1.0)
             self.boneIndices.append(0)
             self.numWeights = 1
@@ -697,22 +697,22 @@ class MdxmSurface:
             [v.co for v in self.vertices],
             [],
             mesh_triangles
-            )
+        )
 
         material = data.materialManager.getMaterial(name, surfaceData.shader)
-        if material == None:
+        if material is None:
             material = bpy.data.materials.new(
                 name=JAStringhelper.decode(surfaceData.shader))
         mesh.materials.append(material)
 
         # this is probably actually bullshit, since vertex order is what determines a tag, not index order! I think.
         """
-		# if this is a tag, changing the index order is not such a good idea. So let's change the vertex order, too!
-		if len( self.vertices ) == 3 and len( self.triangles ) == 1 and self.triangles[0].indices[2] == 0:
-			indexmap = { 0 : 2, 1 : 0, 2 : 1 }
-			self.vertices = [ self.vertices[ indexmap[ i ] ] for i in range( 3 ) ]
-			self.triangles[0].indices = [ indexmap[ self.triangles[0][ i ] ] for i in range( 3 ) ]
-		"""
+        # if this is a tag, changing the index order is not such a good idea. So let's change the vertex order, too!
+        if len( self.vertices ) == 3 and len( self.triangles ) == 1 and self.triangles[0].indices[2] == 0:
+            indexmap = { 0 : 2, 1 : 0, 2 : 1 }
+            self.vertices = [ self.vertices[ indexmap[ i ] ] for i in range( 3 ) ]
+            self.triangles[0].indices = [ indexmap[ self.triangles[0][ i ] ] for i in range( 3 ) ]
+        """
         for poly in mesh.polygons:
             poly.use_smooth = True
         mesh.normals_split_custom_set_from_vertices([v.normal for v in self.vertices])
@@ -1016,7 +1016,7 @@ class GLM:
             self.header.animName = b"*default"
         else:
             # retrieve skeleton
-            if not "skeleton_root" in bpy.data.objects:
+            if "skeleton_root" not in bpy.data.objects:
                 return False, ErrorMessage("No skeleton_root Object found!")
             obj = bpy_generic_cast(bpy.types.Object, bpy.data.objects["skeleton_root"])
             skeleton_object = obj
