@@ -50,13 +50,8 @@ class AnimationSequence():
         self.fps = -1
 
     def __str__(self):
-        return "{name}\t\t{start}\t{frames}\t{loop}\t{fps}".format(
-            name=self.name,
-            start=self.start_frame,
-            frames=self.num_frames,
-            loop=0 if self.loop else -1,
-            fps=self.fps
-        )
+        loop = 0 if self.loop else -1
+        return f"{self.name}\t\t{self.start_frame}\t{self.num_frames}\t{loop}\t{self.fps}"
 
     @classmethod
     def from_cfg_tokens(cls, tokens: Iterator[str]) -> Optional["AnimationSequence"]:
