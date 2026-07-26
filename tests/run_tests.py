@@ -242,6 +242,79 @@ def case_roundtrip():
     testutil.check(testutil.compare_glm(actual_glm, expected_glm) + testutil.compare_gla(actual_gla, expected_gla))
 
 
+def _load_animation_cfg(cfg_dir):
+    cfg = addon.JAG2AnimationCFG.AnimationCFG()
+    success, message = cfg.load_from_cfg(cfg_dir)
+    if not success:
+        raise AssertionError(f"load_from_cfg failed: {message}")
+    return cfg
+
+
+def case_nla_export():
+    """simpleskel_nla.blend (see tests/tools/generate_simpleskel_nla_blend.py) was produced by
+    importing simpleskel.gla via AnimationLoadMode.CFG, which splits animation.cfg's sequences
+    across NLA tracks/actions instead of one big Action. Exporting via GLAMetaExport's NLA source
+    (AnimationCFG.from_blender_nla_tracks) should reconstruct the same sequence metadata -- this
+    is the export half of the animation.cfg/NLA round trip PR #69 added."""
+    import bpy
+    bpy.ops.wm.open_mainfile(filepath=os.path.join(TESTDATA, "simpleskel_nla.blend"))
+    scene = bpy.context.scene
+    assert scene is not None
+
+    export_cfg = addon.JAG2AnimationCFG.AnimationCFG()
+    success, message = export_cfg.from_blender_nla_tracks(scene, offset=0)
+    if not success:
+        raise AssertionError(f"from_blender_nla_tracks failed: {message}")
+
+    cfg_dir = addon.JAFilesystem.PathToFile(SKELETON_REL, REFERENCE_BASEPATH)
+    expected_cfg = _load_animation_cfg(cfg_dir)
+
+    mismatches = []
+    actual_by_name = {seq.name: seq for seq in export_cfg.sequences}
+    expected_by_name = {seq.name: seq for seq in expected_cfg.sequences}
+    if set(actual_by_name) != set(expected_by_name):
+        mismatches.append(
+            f"sequence names differ: actual={set(actual_by_name)} expected={set(expected_by_name)}")
+
+    for name in sorted(set(actual_by_name) & set(expected_by_name)):
+        actual_seq = actual_by_name[name]
+        expected_seq = expected_by_name[name]
+        for field in ("start_frame", "num_frames", "loop", "fps"):
+            actual_value = getattr(actual_seq, field)
+            expected_value = getattr(expected_seq, field)
+            if actual_value != expected_value:
+                mismatches.append(
+                    f"sequence '{name}': {field} differs: actual={actual_value} expected={expected_value}")
+
+    testutil.check(mismatches)
+
+
+def case_nla_roundtrip():
+    """simpleskel_nla.blend's skeleton was materialized via CFG-mode import (NLA tracks/actions,
+    not one continuous Action) -- exporting it back to a .gla should still reproduce the exact
+    same per-frame bone transforms as the original file, since Blender's NLA stack evaluation
+    combines strips transparently regardless of how the animation is organized in the editor."""
+    import bpy
+    bpy.ops.wm.open_mainfile(filepath=os.path.join(TESTDATA, "simpleskel_nla.blend"))
+
+    tmp = tempfile.mkdtemp(prefix="jediacademy-test-nla-roundtrip-")
+    basepath = os.path.join(tmp, "GameData", "base")
+    os.makedirs(os.path.join(basepath, "models", "testcases", "simpleskel"), exist_ok=True)
+
+    scene = addon.JAG2Scene.Scene(basepath)
+    success, message = scene.loadSkeletonFromBlender(SKELETON_REL, gla_reference_rel="")
+    if not success:
+        raise AssertionError(f"loadSkeletonFromBlender failed: {message}")
+    success, message = scene.saveToGLA(SKELETON_REL)
+    if not success:
+        raise AssertionError(f"saveToGLA failed: {message}")
+
+    actual_gla = _load_gla(basepath)
+    expected_gla = _load_gla(REFERENCE_BASEPATH)
+
+    testutil.check(testutil.compare_gla(actual_gla, expected_gla))
+
+
 runner = testutil.TestRunner()
 runner.run("smoke", case_smoke)
 testutil.reset_scene()
@@ -256,4 +329,8 @@ testutil.reset_scene()
 runner.run("roundtrip", case_roundtrip)
 testutil.reset_scene()
 runner.run("no_passive_materialization", case_no_passive_materialization)
+testutil.reset_scene()
+runner.run("nla_export", case_nla_export)
+testutil.reset_scene()
+runner.run("nla_roundtrip", case_nla_roundtrip)
 runner.report()
