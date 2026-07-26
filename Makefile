@@ -2,9 +2,15 @@ PY_FILES = __init__.py mod_reload.py casts.py error_types.py JAAseExport.py JAAs
 
 ZIP_CONTENTS = $(PY_FILES) jediacademy_plugins_readme.txt
 
-.PHONY: all
+.PHONY: all format pep8
 
 all: jediacademy.zip jediacademy_plugins_doc.pdf
+
+format:
+	autopep8 --in-place $(PY_FILES) tests/*.py
+
+pep8:
+	pycodestyle --config=.pep8 $(PY_FILES) tests/*.py
 
 build/jediacademy.zip: $(ZIP_CONTENTS)
 # we must first create the desired directory structure for the zip,
