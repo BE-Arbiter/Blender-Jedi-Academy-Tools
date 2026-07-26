@@ -348,10 +348,11 @@ def case_nla_roundtrip() -> None:
 
 
 def case_animation_cfg_parse() -> None:
-    """Pins the current animation.cfg parser's behavior (AnimationCFG.load_from_cfg /
-    AnimationSequence.from_cfg_line) against the checked-in simpleskel fixture, plus a synthetic
-    partial-final-line case, as a regression safety net ahead of rewriting the parser into a
-    proper tokenizer (see common_tokenizer.py)."""
+    """Pins animation.cfg parser behavior (AnimationCFG.load_from_cfg / common_tokenizer) against
+    the checked-in simpleskel fixture, a synthetic partial-final-line case, and a synthetic case
+    exercising edge cases the naive split()-based parser this replaced got wrong: a number with
+    trailing garbage (atoi-style tolerance), a block comment, a quoted token containing a space,
+    and a mid-token `//` that must NOT start a comment."""
     cfg_dir = addon.JAFilesystem.PathToFile(SKELETON_REL, REFERENCE_BASEPATH)
     cfg = _load_animation_cfg(cfg_dir)
 
@@ -365,6 +366,7 @@ def case_animation_cfg_parse() -> None:
         mismatches.append(f"simpleskel animation.cfg parse differs: actual={actual} expected={expected}")
 
     tmp = tempfile.mkdtemp(prefix="jediacademy-test-cfg-parse-")
+
     partial_dir = os.path.join(tmp, "partial") + os.sep
     os.makedirs(partial_dir, exist_ok=True)
     with open(os.path.join(partial_dir, "animation.cfg"), "w") as f:
@@ -381,6 +383,28 @@ def case_animation_cfg_parse() -> None:
         if actual_partial != expected_partial:
             mismatches.append(
                 f"partial-final-line parse differs: actual={actual_partial} expected={expected_partial}")
+
+    edge_dir = os.path.join(tmp, "edge") + os.sep
+    os.makedirs(edge_dir, exist_ok=True)
+    with open(os.path.join(edge_dir, "animation.cfg"), "w") as f:
+        f.write("seq_with_garbage    0    5foo    -1    20\n")
+        f.write("/* a block comment\n   spanning multiple lines */\n")
+        f.write('"quoted name"       10   5       -1    20\n')
+        f.write("weird//name         20   5       -1    20\n")
+
+    edge_cfg = addon.JAG2AnimationCFG.AnimationCFG()
+    success, message = edge_cfg.load_from_cfg(edge_dir)
+    if not success:
+        mismatches.append(f"load_from_cfg failed on tokenizer-edge-case fixture: {message}")
+    else:
+        actual_edge = [(s.name, s.start_frame, s.num_frames, s.loop, s.fps) for s in edge_cfg.sequences]
+        expected_edge = [
+            ("seq_with_garbage", 0, 5, False, 20),
+            ("quoted name", 10, 5, False, 20),
+            ("weird//name", 20, 5, False, 20),
+        ]
+        if actual_edge != expected_edge:
+            mismatches.append(f"tokenizer-edge-case parse differs: actual={actual_edge} expected={expected_edge}")
 
     testutil.check(mismatches)
 

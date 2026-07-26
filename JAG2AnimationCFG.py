@@ -17,12 +17,28 @@
 # ##### END GPL LICENSE BLOCK #####
 
 from .mod_reload import reload_modules
-reload_modules(locals(), __package__, ["JAFilesystem"], [".casts", ".error_types"])  # nopep8
+reload_modules(locals(), __package__, ["JAFilesystem", "common_tokenizer"], [".casts", ".error_types"])  # nopep8
 
 import bpy
 from . import JAFilesystem
+from . import common_tokenizer
 from .error_types import ErrorMessage
-from typing import List, Tuple
+from typing import Iterator, List, Optional, Tuple
+
+
+# Tolerates trailing garbage after the number, like C's atoi (e.g. "5foo" -> 5), unlike Python's
+# int() which raises. Returns 0 if there's no leading numeric prefix at all, also matching atoi.
+def _atoi(token: str) -> int:
+    i = 0
+    n = len(token)
+    if i < n and token[i] in "+-":
+        i += 1
+    digitsStart = i
+    while i < n and token[i].isdigit():
+        i += 1
+    if i == digitsStart:
+        return 0
+    return int(token[:i])
 
 
 class AnimationSequence():
@@ -43,20 +59,29 @@ class AnimationSequence():
         )
 
     @classmethod
-    def from_cfg_line(cls, txt_line):
-        try:
-            # remove comments inline first, someone might have annotated these
-            line = txt_line.split("//")[0]
-            name, sf, nf, l, fps = line.split()
-            new_frame = cls()
-            new_frame.name = name
-            new_frame.start_frame = int(sf)
-            new_frame.num_frames = int(nf)
-            new_frame.loop = int(l) != -1
-            new_frame.fps = int(fps)
-            return new_frame
-        except Exception:
+    def from_cfg_tokens(cls, tokens: Iterator[str]) -> Optional["AnimationSequence"]:
+        """Consumes the next 5 tokens (name, start, length, loop, fps) from a shared token
+        stream produced by common_tokenizer.tokenize. Returns None once there's no further
+        entry to read: an empty/missing name matches BG_ParseAnimationFile's own end-of-file
+        check, and a stream that runs out mid-entry is treated the same way (silently stopping,
+        rather than raising) since that can only happen at genuine end of file."""
+        name = next(tokens, "")
+        if not name:
             return None
+        try:
+            start_frame = next(tokens)
+            num_frames = next(tokens)
+            loop = next(tokens)
+            fps = next(tokens)
+        except StopIteration:
+            return None
+        new_frame = cls()
+        new_frame.name = name
+        new_frame.start_frame = _atoi(start_frame)
+        new_frame.num_frames = _atoi(num_frames)
+        new_frame.loop = _atoi(loop) != -1
+        new_frame.fps = _atoi(fps)
+        return new_frame
 
     @classmethod
     def from_blender_markers(cls, marker1: bpy.types.TimelineMarker, marker2: bpy.types.TimelineMarker, fps: int, offset: int = 0):
@@ -96,18 +121,18 @@ class AnimationCFG():
             return False, ErrorMessage("Could not find the animation.cfg next to the .gla file")
 
         try:
-            file = open(cfg_abs, mode="r")
+            with open(cfg_abs, mode="r") as file:
+                text = file.read()
         except IOError:
             print("Could not open file: ", cfg_abs, sep="")
             return False, ErrorMessage("Could not open skin!")
-        for line in file:
-            if line.startswith("//") or line.strip() == "":
-                continue
-            sequence = AnimationSequence().from_cfg_line(line)
-            if sequence:
-                self.sequences.append(sequence)
-            else:
-                print("Could not parse following line in animations.cfg", line)
+
+        tokens = common_tokenizer.tokenize(text)
+        while True:
+            sequence = AnimationSequence.from_cfg_tokens(tokens)
+            if sequence is None:
+                break
+            self.sequences.append(sequence)
         self.sequences.sort(key=lambda sequence: sequence.start_frame)
         return True, ErrorMessage("Nothing")
 
