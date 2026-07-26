@@ -347,6 +347,44 @@ def case_nla_roundtrip() -> None:
         testutil.compare_gla(actual_gla, expected_gla) + testutil.compare_animation_cfg(export_cfg, expected_cfg))
 
 
+def case_animation_cfg_parse() -> None:
+    """Pins the current animation.cfg parser's behavior (AnimationCFG.load_from_cfg /
+    AnimationSequence.from_cfg_line) against the checked-in simpleskel fixture, plus a synthetic
+    partial-final-line case, as a regression safety net ahead of rewriting the parser into a
+    proper tokenizer (see common_tokenizer.py)."""
+    cfg_dir = addon.JAFilesystem.PathToFile(SKELETON_REL, REFERENCE_BASEPATH)
+    cfg = _load_animation_cfg(cfg_dir)
+
+    mismatches = []
+    expected = [
+        ("test_seq_1", 0, 10, False, 20),
+        ("test_seq_2", 10, 11, False, 24),
+    ]
+    actual = [(s.name, s.start_frame, s.num_frames, s.loop, s.fps) for s in cfg.sequences]
+    if actual != expected:
+        mismatches.append(f"simpleskel animation.cfg parse differs: actual={actual} expected={expected}")
+
+    tmp = tempfile.mkdtemp(prefix="jediacademy-test-cfg-parse-")
+    partial_dir = os.path.join(tmp, "partial") + os.sep
+    os.makedirs(partial_dir, exist_ok=True)
+    with open(os.path.join(partial_dir, "animation.cfg"), "w") as f:
+        f.write("valid_seq 0 5 -1 20\n")
+        f.write("partial_seq 5")  # truncated: missing length/loop/fps, no trailing newline
+
+    partial_cfg = addon.JAG2AnimationCFG.AnimationCFG()
+    success, message = partial_cfg.load_from_cfg(partial_dir)
+    if not success:
+        mismatches.append(f"load_from_cfg failed on partial-final-line fixture: {message}")
+    else:
+        actual_partial = [(s.name, s.start_frame, s.num_frames, s.loop, s.fps) for s in partial_cfg.sequences]
+        expected_partial = [("valid_seq", 0, 5, False, 20)]
+        if actual_partial != expected_partial:
+            mismatches.append(
+                f"partial-final-line parse differs: actual={actual_partial} expected={expected_partial}")
+
+    testutil.check(mismatches)
+
+
 runner = testutil.TestRunner()
 runner.run("smoke", case_smoke)
 testutil.reset_scene()
@@ -365,4 +403,6 @@ testutil.reset_scene()
 runner.run("nla_export", case_nla_export)
 testutil.reset_scene()
 runner.run("nla_roundtrip", case_nla_roundtrip)
+testutil.reset_scene()
+runner.run("animation_cfg_parse", case_animation_cfg_parse)
 runner.report()
