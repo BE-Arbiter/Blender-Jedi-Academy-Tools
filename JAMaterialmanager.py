@@ -97,7 +97,7 @@ class MaterialManager():
             if node.type == 'BSDF_PRINCIPLED':
                 bsdf = node
                 break
-        if bsdf == None:
+        if bsdf is None:
             print("Bug: could not find the Principled BSDF node in new material, please report this")
             # fall back to pink
             mat.use_nodes = False

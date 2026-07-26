@@ -166,7 +166,7 @@ class MdxaBone:
         boneIndicesByName[self.name] = self.index
 
         # parent is -1 by default - change if there is one.
-        if editbone.parent != None:
+        if editbone.parent is not None:
             self.parent = boneIndicesByName[editbone.parent.name]
             parent = bones[self.parent]
             parent.numChildren += 1
@@ -267,7 +267,7 @@ class MdxaSkel:
 
     def fitsArmature(self, armature) -> Tuple[bool, ErrorMessage]:
         for bone in self.bones:
-            if not bone.name in armature.bones:
+            if bone.name not in armature.bones:
                 return False, ErrorMessage(f"Bone {bone.name} not found in existing skeleton_root armature!")
         return True, NoError
 
@@ -563,7 +563,7 @@ class MdxaAnimation:
                     try:
                         strip = nla_track.strips.new(action.name, sequence.start_frame, action)
                         strip.action_frame_start = 0
-                        strip.action_frame_end = sequence.num_frames-1
+                        strip.action_frame_end = sequence.num_frames - 1
                         strip.action_slot = slot
                     except Exception:
                         strip = None
@@ -728,7 +728,7 @@ class GLA:
         self.header.name = gla_filepath_rel
 
         # find skeleton_root
-        if not "skeleton_root" in bpy.data.objects:
+        if "skeleton_root" not in bpy.data.objects:
             return False, ErrorMessage("No skeleton_root object found!")
         skeleton_object = bpy_generic_cast(bpy.types.Object, bpy.data.objects["skeleton_root"])
         self.skeleton_object = skeleton_object
@@ -785,7 +785,7 @@ class GLA:
                 newBonesToAdd = []
                 for bone in bonesToAdd:
                     # add bones whose parents have already been added
-                    if bone.parent == None or bone.parent.name in self.boneIndexByName:
+                    if bone.parent is None or bone.parent.name in self.boneIndexByName:
                         # create this bone
                         newBone = MdxaBone()
 
@@ -802,7 +802,7 @@ class GLA:
                     else:
                         newBonesToAdd.append(bone)
                 bonesToAdd = newBonesToAdd
-                if addedSomething == False:
+                if not addedSomething:
                     return False, ErrorMessage("Hierarchy error, failed to find bone parent (most likely a bug, actually)")
 
             # calculate bone file position offsets
@@ -978,7 +978,7 @@ class GLA:
             # link the object to the current scene if necessary
             scene = bpy.context.scene
             assert scene is not None
-            if not self.skeleton_object.name in scene.collection.objects:
+            if self.skeleton_object.name not in scene.collection.objects:
                 scene.collection.objects.link(self.skeleton_object)
 
             # set its parent to the scene_root (not strictly speaking necessary but keeps output consistent)

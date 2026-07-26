@@ -37,6 +37,7 @@ def union_cast(t: Type[T], v: Union[T, U]) -> T:
     """A cast from a union to one of its elements"""
     return cast(t, v)  # pyright: ignore [reportInvalidTypeForm]
 
+
 # A cast used to turn A | B into A or B, for properties that accept unions in the setter but return a fixed type in the setter.
 # Blender uses this extensively to allow assigning sequences in place of vectors and matrices,
 # and mypy doesn't currently support differing types in setters (https://github.com/python/mypy/issues/3004)

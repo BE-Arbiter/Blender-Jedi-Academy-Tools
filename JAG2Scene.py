@@ -145,7 +145,7 @@ class Scene:
         scene_root = findSceneRootObject()
         if scene_root:
             # make sure it's linked to the current scene
-            if not "scene_root" in scene.collection.objects:
+            if "scene_root" not in scene.collection.objects:
                 scene.collection.objects.link(scene_root)
         else:
             # create it otherwise

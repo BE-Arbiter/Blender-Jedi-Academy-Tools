@@ -340,6 +340,7 @@ class GLAMetaExport(bpy.types.Operator):
         wm.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
+
 class OBJECT_OT_AddG2Properties(bpy.types.Operator):
     bl_idname = "object.add_g2_properties"
     bl_label = "Add Ghoul 2 Properties"

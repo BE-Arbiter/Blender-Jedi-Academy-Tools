@@ -89,7 +89,6 @@ def hasG2ArmatureProperties(obj: bpy.types.Object) -> bool:
     return G2_CONFIGURED_KEY in obj
 
 
-
 # -------------------------------------------------------------
 #   LEGACY PROPERTY MIGRATION
 # -------------------------------------------------------------
