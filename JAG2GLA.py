@@ -545,11 +545,17 @@ class MdxaAnimation:
                 action = bpy.data.actions.new(sequence.name)
                 action.g2_sequence_prop.loop_frame = sequence.loop  # pyright: ignore[reportAttributeAccessIssue]
                 action.g2_sequence_prop.fps = sequence.fps  # pyright: ignore[reportAttributeAccessIssue]
-                slot = action.slots.get("Armature")
-                if not slot:
-                    slot = action.slots.new('OBJECT', "Armature")
+                # Action Slots (multi-user actions) were only introduced in Blender 4.4 - older
+                # supported versions (down to 4.1) have neither Action.slots nor
+                # AnimData/NlaStrip.action_slot, and don't need them either.
+                slot = None
+                if hasattr(action, "slots"):
+                    slot = action.slots.get("Armature")
+                    if not slot:
+                        slot = action.slots.new('OBJECT', "Armature")
                 animData.action = action
-                animData.action_slot = slot
+                if hasattr(animData, "action_slot"):
+                    animData.action_slot = slot
                 strip = None
                 nla_track_index = 1
                 # pick a nla track that can hold the animation, overlapping strips is not possible
@@ -564,7 +570,8 @@ class MdxaAnimation:
                         strip = nla_track.strips.new(action.name, sequence.start_frame, action)
                         strip.action_frame_start = 0
                         strip.action_frame_end = sequence.num_frames - 1
-                        strip.action_slot = slot
+                        if hasattr(strip, "action_slot"):
+                            strip.action_slot = slot
                     except Exception:
                         strip = None
                     nla_track_index += 1
@@ -613,7 +620,8 @@ class MdxaAnimation:
                         pose_bone.keyframe_insert('location', frame=i)
                         pose_bone.keyframe_insert('rotation_quaternion', frame=i)
             # remove action from the animation data to stop previewing a single action
-            animData.action_slot = None  # type: ignore
+            if hasattr(animData, "action_slot"):
+                animData.action_slot = None  # type: ignore
             animData.action = None  # type: ignore
 
             # enter object mode when done
