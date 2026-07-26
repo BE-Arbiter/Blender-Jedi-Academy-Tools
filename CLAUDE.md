@@ -23,12 +23,12 @@ files, compare). If asked to add tests, see "Testing" below for the intended dir
   `build/jediacademy_plugins_doc.pdf` (compiled from `jediacademy_plugins_doc.tex` via `pdflatex`).
 - `make build/jediacademy.zip` — package just the add-on `.py` files (see `PY_FILES` in `Makefile`) plus
   the readme into a zip installable via Blender's add-on preferences.
-- CI (`.github/workflows/ci.yml`) runs `smoke-test` and `typecheck` on every PR, `vX.Y.Z` tag push, and
-  on its daily `schedule`/manual `workflow_dispatch` — deliberately *not* on every push to `master`,
+- CI (`.github/workflows/ci.yml`) runs `smoke-test`, `typecheck`, and `pep8` on every PR, `vX.Y.Z` tag push,
+  and on its daily `schedule`/manual `workflow_dispatch` — deliberately *not* on every push to `master`,
   since a PR already ran them before merge. On a `schedule` tick specifically, they're also skipped if
   there's nothing to do (see `check-nightly-needed` below) — a no-op nightly tick doesn't spin up the
-  Blender matrix or pyright for nothing. Two more jobs depend on `smoke-test`/`typecheck`
-  (`needs: [smoke-test, typecheck]`) and only run/publish if both passed (or were skipped as a no-op):
+  Blender matrix or pyright for nothing. Two more jobs depend on `smoke-test`/`typecheck`/`pep8`
+  (`needs: [smoke-test, typecheck, pep8]`) and only run/publish if all three passed (or were skipped as a no-op):
   `nightly` (force-updates the `nightly` prerelease tag/release with a freshly built manual and zip;
   only on the `schedule`/`workflow_dispatch` triggers, and on `schedule` only if `master` has new commits
   since the last nightly *attempt* — checked via the `check-nightly-needed` job, which always runs
@@ -40,8 +40,13 @@ files, compare). If asked to add tests, see "Testing" below for the intended dir
   "Releases" below).
 - Formatting/linting: pycodestyle via `.pep8` (only rule disabled: E501 line length, to allow long
   `# pyright: ignore` comments). VS Code is configured (`.vscode/settings.json`) to use `autopep8` as the
-  Python formatter and pyright type checking at `standard` mode. There's no separate CLI lint command
-  currently wired up — run `pycodestyle` / `pyright` directly if checking manually.
+  Python formatter and pyright type checking at `standard` mode. `make format` runs `autopep8 --in-place`
+  over the same file set; `make pep8` runs `pycodestyle` in check-only mode (what CI's `pep8` job runs).
+
+## Writing comments, commit messages, and PR descriptions
+
+Keep all three succinct: state the fact/change, skip restating what the diff already shows. A comment
+should carry the one thing the code alone doesn't (a non-obvious *why*), not a narration of the *what*.
 
 ### Known Blender version support
 
