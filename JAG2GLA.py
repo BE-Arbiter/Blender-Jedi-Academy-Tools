@@ -33,8 +33,8 @@ from typing import BinaryIO, Dict, List, Optional, Tuple
 from enum import Enum
 import struct
 import time
-import bpy
-import mathutils
+import bpy # pyright: ignore[reportMissingImports]
+import mathutils # pyright: ignore[reportMissingImports]
 
 PROFILE = False
 # show progress & remaining time every 30 seconds.
@@ -669,6 +669,7 @@ class MdxaSkel:
 
         #  Set the armature as active and go to edit mode to add bones
         assert bpy.context.view_layer is not None
+        assert bpy.context.view_layer.objects is not None
         bpy.context.view_layer.objects.active = self.armature_object
         bpy.ops.object.mode_set(mode='EDIT')
         # list of indices of already created bones - only those bones with this as parent will be added
@@ -903,6 +904,8 @@ class MdxaAnimation:
         #   Prepare animation
         scene = bpy.context.scene
         assert scene is not None
+        assert scene.frame_start is not None
+        assert scene.frame_end is not None
         scene.frame_start = 0
         numFrames = len(self.frames)
         scene.frame_end = numFrames - 1
