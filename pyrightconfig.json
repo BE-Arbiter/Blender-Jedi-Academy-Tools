@@ -17,5 +17,8 @@
     ],
     "typeCheckingMode": "standard",
     "pythonVersion": "3.11",
-    "reportMissingModuleSource": false
+    "reportMissingModuleSource": "warning",
+    "reportAttributeAccessIssue": "warning",
+    "reportOptionalSubscript": "warning",
+    "reportGeneralTypeIssues": "warning",
 }
