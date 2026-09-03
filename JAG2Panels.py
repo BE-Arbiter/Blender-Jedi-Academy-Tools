@@ -42,20 +42,41 @@ class G2Props(bpy.types.PropertyGroup):
 
 
 # Per-Action loop/fps metadata for animation.cfg NLA import/export, mirroring G2Props above --
-# a nested PropertyGroup + PointerProperty rather than raw bpy.types.Action.loop_frame/fps
+# a nested PropertyGroup + PointerProperty rather than raw bpy.types.Action.loop_start_frame/fps
 # assignment, since that raw-assignment style is exactly what Blender 5.0 broke for g2_prop
 # (see the legacy migration below).
 class G2SequenceProps(bpy.types.PropertyGroup):
-    loop_frame: BoolProperty(
-        name="Loop",
-        default=False,
-        description="Whether this sequence will loop"
+    # An int, not a bool: in animation.cfg this column is the frame to loop back to, which JKA
+    # reads with atoi into animations[i].loopFrames. Storing it as a bool collapsed every value
+    # other than -1 to 0 on a round trip. -1 means "no loop".
+    #
+    # DELIBERATELY RENAMED from the old boolean "loop_frame". Blender keeps the stored value of
+    # a property across a type change, so a .blend saved with the bool version would read False
+    # back as the integer 0 - and 0 means "loop back to frame 0", not "no loop". Under the new
+    # name the old data is simply absent and the -1 default applies, which is what a stored
+    # False meant. A stored True (the old code could only ever write 0 or -1) is lost, which is
+    # the safer direction.
+    loop_start_frame: IntProperty(
+        name="Loop Frame",
+        default=-1,
+        description="Frame this sequence loops back to, or -1 for no loop"
     )  # type: ignore
 
     fps: IntProperty(
         name="FPS",
         default=30,
         description="Sequence playback fps"
+    )  # type: ignore
+
+    # The sequence's true length in frames. Needed because an NLA strip cannot be shorter than
+    # one frame of length, so a 1-frame sequence always occupies two - the strip's extent alone
+    # cannot tell the two apart. 0 means "unknown", and the cfg export falls back to measuring
+    # the strip.
+    num_frames: IntProperty(
+        name="Frames",
+        default=0,
+        min=0,
+        description="Number of frames in this sequence (0 = derive it from the strip)"
     )  # type: ignore
 
 
@@ -199,7 +220,7 @@ class G2NLAPropertiesPanel(bpy.types.Panel):
         assert strip is not None and strip.action is not None
         props = strip.action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
         layout.use_property_split = True
-        layout.prop(props, "loop_frame")
+        layout.prop(props, "loop_start_frame")
         layout.prop(props, "fps")
 
 
@@ -221,7 +242,7 @@ class G2ActionPropertiesPanel(bpy.types.Panel):
         assert action is not None
         props = action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
         layout.use_property_split = True
-        layout.prop(props, "loop_frame")
+        layout.prop(props, "loop_start_frame")
         layout.prop(props, "fps")
 
 

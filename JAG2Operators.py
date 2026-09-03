@@ -26,6 +26,7 @@ from . import JAG2GLA
 from . import JAFilesystem
 from . import JAG2Panels
 from . import JAG2AnimationCFG
+from . import JAG2Settings
 from .JAG2Constants import SkeletonFixes
 from .casts import OperatorReturnItems
 
@@ -77,6 +78,8 @@ class GLMImport(bpy.types.Operator):
         name="number of frames", description="If only a range of frames of the animation is to be imported, this is the total number of frames to import", min=1)  # pyright: ignore [reportInvalidTypeForm]
 
     def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
+        # Remember what was used, so the next run of this dialog starts here.
+        JAG2Settings.save(self)
         print("\n== GLM Import ==\n")
         # initialize paths
         basepath, filepath = GetPaths(self.basepath, self.filepath)
@@ -119,6 +122,7 @@ class GLMImport(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> Set[OperatorReturnItems]:
+        JAG2Settings.restore(self)
         # show file selection window
         wm = context.window_manager
         assert wm is not None
@@ -159,6 +163,8 @@ class GLAImport(bpy.types.Operator):
         name="number of frames", description="If only a range of frames of the animation is to be imported, this is the total number of frames to import", min=1)  # pyright: ignore [reportInvalidTypeForm]
 
     def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
+        # Remember what was used, so the next run of this dialog starts here.
+        JAG2Settings.save(self)
         print("\n== GLA Import ==\n")
         # de-percentagionise scale
         scale = self.scale / 100
@@ -191,6 +197,7 @@ class GLAImport(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> Set[OperatorReturnItems]:
+        JAG2Settings.restore(self)
         wm = context.window_manager
         assert wm is not None
         wm.fileselect_add(self)
@@ -215,6 +222,8 @@ class GLMExport(bpy.types.Operator):
         name=".gla name", description="Name of the skeleton this model uses (must exist!)", default="models/players/_humanoid/_humanoid")  # pyright: ignore [reportInvalidTypeForm]
 
     def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
+        # Remember what was used, so the next run of this dialog starts here.
+        JAG2Settings.save(self)
         print("\n== GLM Export ==\n")
         # initialize paths
         basepath, filepath = GetPaths(self.basepath, self.filepath)
@@ -234,6 +243,7 @@ class GLMExport(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> Set[OperatorReturnItems]:
+        JAG2Settings.restore(self)
         wm = context.window_manager
         assert wm is not None
         wm.fileselect_add(self)
@@ -260,6 +270,8 @@ class GLAExport(bpy.types.Operator):
         name="gla reference", description="Copies the bone indices from this skeleton, if any (e.g. for new animations for existing skeleton; path relative to the Base Path)", maxlen=64, default="")  # pyright: ignore [reportInvalidTypeForm]
 
     def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
+        # Remember what was used, so the next run of this dialog starts here.
+        JAG2Settings.save(self)
         print("\n== GLA Export ==\n")
         # initialize paths
         basepath, filepath = GetPaths(self.basepath, self.filepath)
@@ -286,6 +298,7 @@ class GLAExport(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> Set[OperatorReturnItems]:
+        JAG2Settings.restore(self)
         wm = context.window_manager
         assert wm is not None
         wm.fileselect_add(self)
@@ -312,6 +325,8 @@ class GLAMetaExport(bpy.types.Operator):
         name="Offset", description="Frame offset for the animations, e.g. 21376 if you plan on merging with Jedi Academy's _humanoid.gla", min=0, default=0)  # pyright: ignore [reportInvalidTypeForm]
 
     def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
+        # Remember what was used, so the next run of this dialog starts here.
+        JAG2Settings.save(self)
         print("\n== GLA Metadata Export ==\n")
 
         export_cfg = JAG2AnimationCFG.AnimationCFG()
@@ -335,6 +350,7 @@ class GLAMetaExport(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> Set[OperatorReturnItems]:
+        JAG2Settings.restore(self)
         wm = context.window_manager
         assert wm is not None
         wm.fileselect_add(self)
@@ -418,6 +434,9 @@ def menu_func_import_gla(self, context):
 
 
 def register():
+    # Registered here so the preferences exist before any operator can try to read them.
+    JAG2Settings.register()
+
     bpy.utils.register_class(GLMExport)
     bpy.utils.register_class(GLAExport)
     bpy.utils.register_class(GLAMetaExport)
@@ -449,3 +468,5 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export_gla_meta)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import_glm)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import_gla)
+
+    JAG2Settings.unregister()

@@ -357,9 +357,12 @@ def case_animation_cfg_parse() -> None:
     cfg = _load_animation_cfg(cfg_dir)
 
     mismatches = []
+    # loop is the frame to jump back to (-1 = none), not a flag. Non-trivial values are covered
+    # by the synthetic fixtures below and by case_nla_loop_roundtrip; this shared fixture is left
+    # alone because tests/testdata/simpleskel_nla.blend was baked against it.
     expected = [
-        ("test_seq_1", 0, 10, False, 20),
-        ("test_seq_2", 10, 11, False, 24),
+        ("test_seq_1", 0, 10, -1, 20),
+        ("test_seq_2", 10, 11, -1, 24),
     ]
     actual = [(s.name, s.start_frame, s.num_frames, s.loop, s.fps) for s in cfg.sequences]
     if actual != expected:
@@ -379,7 +382,7 @@ def case_animation_cfg_parse() -> None:
         mismatches.append(f"load_from_cfg failed on partial-final-line fixture: {message}")
     else:
         actual_partial = [(s.name, s.start_frame, s.num_frames, s.loop, s.fps) for s in partial_cfg.sequences]
-        expected_partial = [("valid_seq", 0, 5, False, 20)]
+        expected_partial = [("valid_seq", 0, 5, -1, 20)]
         if actual_partial != expected_partial:
             mismatches.append(
                 f"partial-final-line parse differs: actual={actual_partial} expected={expected_partial}")
@@ -389,8 +392,10 @@ def case_animation_cfg_parse() -> None:
     with open(os.path.join(edge_dir, "animation.cfg"), "w") as f:
         f.write("seq_with_garbage    0    5foo    -1    20\n")
         f.write("/* a block comment\n   spanning multiple lines */\n")
-        f.write('"quoted name"       10   5       -1    20\n')
-        f.write("weird//name         20   5       -1    20\n")
+        # loop values other than -1 deliberately included: the column is the frame to loop
+        # back to, and storing it as a bool used to collapse every such value to 0.
+        f.write('"quoted name"       10   5       3     20\n')
+        f.write("weird//name         20   5       0     20\n")
 
     edge_cfg = addon.JAG2AnimationCFG.AnimationCFG()
     success, message = edge_cfg.load_from_cfg(edge_dir)
@@ -399,14 +404,197 @@ def case_animation_cfg_parse() -> None:
     else:
         actual_edge = [(s.name, s.start_frame, s.num_frames, s.loop, s.fps) for s in edge_cfg.sequences]
         expected_edge = [
-            ("seq_with_garbage", 0, 5, False, 20),
-            ("quoted name", 10, 5, False, 20),
-            ("weird//name", 20, 5, False, 20),
+            ("seq_with_garbage", 0, 5, -1, 20),
+            ("quoted name", 10, 5, 3, 20),
+            ("weird//name", 20, 5, 0, 20),
         ]
         if actual_edge != expected_edge:
             mismatches.append(f"tokenizer-edge-case parse differs: actual={actual_edge} expected={expected_edge}")
 
     testutil.check(mismatches)
+
+
+def _import_cfg_to_blender(cfg_dir: str) -> None:
+    """CFG-mode import of the simpleskel fixture, but reading animation.cfg from `cfg_dir`.
+
+    Lets a test substitute its own animation.cfg (different loop values, overlapping sequences)
+    while reusing the checked-in .gla for the actual frame data."""
+    scene = addon.JAG2Scene.Scene(REFERENCE_BASEPATH)
+    success, message = scene.loadFromCFG(cfg_dir)
+    if not success:
+        raise AssertionError(f"loadFromCFG failed: {message}")
+    success, message = scene.loadFromGLA(SKELETON_REL, loadAnimations=addon.JAG2GLA.AnimationLoadMode.CFG)
+    if not success:
+        raise AssertionError(f"loadFromGLA failed: {message}")
+    success, message = scene.saveToBlender(
+        scale=1.0, skin_rel="", guessTextures=False, useAnimation=True,
+        skeletonFixes=addon.JAG2Constants.SkeletonFixes.NONE,
+    )
+    if not success:
+        raise AssertionError(f"saveToBlender failed: {message}")
+
+
+def case_nla_loop_roundtrip() -> None:
+    """The loop column in animation.cfg is the frame to jump back to, which JKA reads with atoi
+    into animations[i].loopFrames - not a flag. It used to be stored as a bool, so every value
+    other than -1 came back as 0 after a round trip. The shared simpleskel fixture only uses -1,
+    so this builds its own cfg with a non-trivial loop value and checks it survives
+    cfg -> NLA import -> cfg export intact."""
+    tmp = tempfile.mkdtemp(prefix="jediacademy-test-loop-")
+    cfg_dir = os.path.join(tmp, "loopcfg") + os.sep
+    os.makedirs(cfg_dir, exist_ok=True)
+    with open(os.path.join(cfg_dir, "animation.cfg"), "w") as f:
+        f.write("// name        start length loop fps\n")
+        f.write("loop_none       0     10     -1   20\n")
+        f.write("loop_from_five  10    11     5    24\n")
+
+    source_cfg = _load_animation_cfg(cfg_dir)
+    if [s.loop for s in source_cfg.sequences] != [-1, 5]:
+        raise AssertionError(
+            f"parser did not keep the loop frame: {[s.loop for s in source_cfg.sequences]}")
+
+    _import_cfg_to_blender(cfg_dir)
+
+    import bpy
+    blender_scene = bpy.context.scene
+    assert blender_scene is not None
+    export_cfg = addon.JAG2AnimationCFG.AnimationCFG()
+    success, message = export_cfg.from_blender_nla_tracks(blender_scene, offset=0)
+    if not success:
+        raise AssertionError(f"from_blender_nla_tracks failed: {message}")
+
+    testutil.check(testutil.compare_animation_cfg(export_cfg, source_cfg))
+
+
+def case_nla_multi_layer_export() -> None:
+    """Guards two things the single-layer simpleskel fixture cannot reach.
+
+    Sequences that overlap in time cannot share an NLA track, so the importer spreads them over
+    "Sequences Layer 1..8". That means (a) the importer's is_solo flag on layer 1 would make the
+    GLA export sample the rest pose for everything on layers 2+, and (b) strips on higher layers
+    default to HOLD extrapolation, which would let them override lower layers across the whole
+    timeline. Both are invisible with only non-overlapping sequences on layer 1."""
+    tmp = tempfile.mkdtemp(prefix="jediacademy-test-layers-")
+    cfg_dir = os.path.join(tmp, "overlapcfg") + os.sep
+    os.makedirs(cfg_dir, exist_ok=True)
+    with open(os.path.join(cfg_dir, "animation.cfg"), "w") as f:
+        f.write("// name    start length loop fps\n")
+        f.write("seq_a       0     10     -1   20\n")
+        f.write("seq_b       5     10     -1   20\n")  # overlaps seq_a -> forced onto layer 2
+        f.write("seq_c       10    11     -1   24\n")
+
+    source_cfg = _load_animation_cfg(cfg_dir)
+    _import_cfg_to_blender(cfg_dir)
+
+    import bpy
+    blender_scene = bpy.context.scene
+    assert blender_scene is not None
+    skeleton = bpy.data.objects.get("skeleton_root")
+    if skeleton is None or skeleton.animation_data is None:
+        raise AssertionError("no skeleton_root with animation data after import")
+
+    mismatches = []
+
+    # bpy.data.objects.get() narrows to Never for the type checker after the None guard above,
+    # so name the animation data through a plain Any rather than fighting the stubs.
+    animData: Any = skeleton.animation_data
+    used_layers = {t.name for t in animData.nla_tracks if len(t.strips)}
+    if len(used_layers) < 2:
+        mismatches.append(
+            f"expected overlapping sequences to occupy more than one track, got {used_layers}")
+
+    for track in animData.nla_tracks:
+        for strip in track.strips:
+            if strip.extrapolation != 'NOTHING':
+                mismatches.append(
+                    f"strip {strip.name} on {track.name} has extrapolation "
+                    f"{strip.extrapolation}, expected NOTHING - HOLD lets it override other "
+                    f"layers outside its own frame range")
+
+    # Every sequence must still reach the cfg export, including those on higher layers.
+    exported = addon.JAG2AnimationCFG.AnimationCFG()
+    success, message = exported.from_blender_nla_tracks(blender_scene, offset=0)
+    if not success:
+        raise AssertionError(f"from_blender_nla_tracks failed: {message}")
+    if sorted(s.name for s in exported.sequences) != sorted(s.name for s in source_cfg.sequences):
+        mismatches.append(
+            f"exported sequence names {sorted(s.name for s in exported.sequences)} != "
+            f"source {sorted(s.name for s in source_cfg.sequences)}")
+
+    # And the re-exported GLA must match the original despite the soloed track: loadFromBlender
+    # is responsible for clearing is_solo before sampling poses.
+    basepath = os.path.join(tmp, "GameData", "base")
+    os.makedirs(os.path.join(basepath, "models", "testcases", "simpleskel"), exist_ok=True)
+    reexport_scene = addon.JAG2Scene.Scene(basepath)
+    success, message = reexport_scene.loadSkeletonFromBlender(SKELETON_REL, gla_reference_rel="")
+    if not success:
+        raise AssertionError(f"loadSkeletonFromBlender failed: {message}")
+    success, message = reexport_scene.saveToGLA(SKELETON_REL)
+    if not success:
+        raise AssertionError(f"saveToGLA failed: {message}")
+
+    mismatches += testutil.compare_gla(_load_gla(basepath), _load_gla(REFERENCE_BASEPATH))
+    testutil.check(mismatches)
+
+
+def _count_fcurves(action) -> int:
+    """FCurve count across both the legacy and the slotted-action layouts."""
+    if not hasattr(action, "layers"):
+        return len(action.fcurves)
+    total = 0
+    for layer in action.layers:
+        for strip in layer.strips:
+            for channelbag in strip.channelbags:
+                total += len(channelbag.fcurves)
+    return total
+
+
+def case_nla_keyframes_written() -> None:
+    """The bulk-bake import writes FCurves directly instead of calling keyframe_insert. If it
+    resolves the wrong container - which slotted actions made possible in 4.4 and 5.0 changed
+    again - the curves are created successfully somewhere nothing reads, so the import finishes
+    (fast!) with empty actions, an empty dope sheet and the armature stuck in its rest pose.
+    Nothing raises. So assert the keyframes are actually reachable and carry the right count."""
+    _import_cfg_to_blender(addon.JAFilesystem.PathToFile(SKELETON_REL, REFERENCE_BASEPATH))
+
+    import bpy
+    mismatches = []
+    for name, expected_frames in (("test_seq_1", 10), ("test_seq_2", 11)):
+        action = bpy.data.actions.get(name)
+        if action is None:
+            mismatches.append(f"action {name} was not created")
+            continue
+        numCurves = _count_fcurves(action)
+        if numCurves == 0:
+            mismatches.append(
+                f"action {name} has no FCurves at all - the bake wrote to a container Blender "
+                f"does not read (Blender {bpy.app.version_string})")
+            continue
+        # 53-bone skeleton is not in play here; just require every curve to be fully keyed.
+        for curve in _iter_fcurves(action):
+            if len(curve.keyframe_points) != expected_frames:
+                mismatches.append(
+                    f"{name}: {curve.data_path}[{curve.array_index}] has "
+                    f"{len(curve.keyframe_points)} keyframes, expected {expected_frames}")
+                break
+        # And the pose must actually move: a rest-pose-only import yields constant curves.
+        moving = any(
+            len({round(p.co[1], 6) for p in c.keyframe_points}) > 1
+            for c in _iter_fcurves(action))
+        if not moving:
+            mismatches.append(f"{name}: every FCurve is constant - no animation was applied")
+
+    testutil.check(mismatches)
+
+
+def _iter_fcurves(action):
+    if not hasattr(action, "layers"):
+        yield from action.fcurves
+        return
+    for layer in action.layers:
+        for strip in layer.strips:
+            for channelbag in strip.channelbags:
+                yield from channelbag.fcurves
 
 
 runner = testutil.TestRunner()
@@ -427,6 +615,12 @@ testutil.reset_scene()
 runner.run("nla_export", case_nla_export)
 testutil.reset_scene()
 runner.run("nla_roundtrip", case_nla_roundtrip)
+testutil.reset_scene()
+runner.run("nla_keyframes_written", case_nla_keyframes_written)
+testutil.reset_scene()
+runner.run("nla_loop_roundtrip", case_nla_loop_roundtrip)
+testutil.reset_scene()
+runner.run("nla_multi_layer_export", case_nla_multi_layer_export)
 testutil.reset_scene()
 runner.run("animation_cfg_parse", case_animation_cfg_parse)
 runner.report()
