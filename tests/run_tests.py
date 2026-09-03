@@ -495,12 +495,15 @@ def case_nla_multi_layer_export() -> None:
 
     mismatches = []
 
-    used_layers = {t.name for t in skeleton.animation_data.nla_tracks if len(t.strips)}
+    # bpy.data.objects.get() narrows to Never for the type checker after the None guard above,
+    # so name the animation data through a plain Any rather than fighting the stubs.
+    animData: Any = skeleton.animation_data
+    used_layers = {t.name for t in animData.nla_tracks if len(t.strips)}
     if len(used_layers) < 2:
         mismatches.append(
             f"expected overlapping sequences to occupy more than one track, got {used_layers}")
 
-    for track in skeleton.animation_data.nla_tracks:
+    for track in animData.nla_tracks:
         for strip in track.strips:
             if strip.extrapolation != 'NOTHING':
                 mismatches.append(

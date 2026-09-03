@@ -58,7 +58,8 @@ mathutils.Quaternion = _Quat
 sys.modules["mathutils"] = mathutils
 
 bpy = types.ModuleType("bpy")
-bpy.types = types.SimpleNamespace(Object=object, Scene=object)
+bpy.types = types.SimpleNamespace(Object=object, Scene=object, Armature=object,
+                                  Pose=object, AnimData=object)
 bpy.utils = types.SimpleNamespace(escape_identifier=lambda s: s)
 sys.modules["bpy"] = bpy
 

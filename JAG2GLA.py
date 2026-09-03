@@ -68,7 +68,9 @@ def _getFCurves(action: bpy.types.Action, slot):
     # 4.4 / 4.5: navigate to the channelbag by hand.
     layer = action.layers[0] if len(action.layers) else action.layers.new("Layer")
     strip = layer.strips[0] if len(layer.strips) else layer.strips.new(type='KEYFRAME')
-    return strip.channelbag(slot, ensure=True).fcurves
+    # channelbag() only exists on ActionKeyframeStrip (Blender 4.4+); the stubs the CI type
+    # checks against type layer.strips[...] as the base ActionStrip, which has no such method.
+    return strip.channelbag(slot, ensure=True).fcurves  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _findFCurve(fcurves, dataPath: str, index: int):
@@ -119,7 +121,7 @@ def _verifyFCurveContainer(action: bpy.types.Action, slot, armature: bpy.types.O
     is empty and the armature sits in its rest pose. So before baking anything, let Blender's own
     keyframe_insert create a curve and check it turns up in the container we would have used."""
     try:
-        poseBone = armature.pose.bones[boneName]
+        poseBone = optional_cast(bpy.types.Pose, armature.pose).bones[boneName]
     except Exception as e:
         return False, f"could not access pose bone {boneName}: {e}"
 
@@ -149,7 +151,8 @@ def _verifyFCurveContainer(action: bpy.types.Action, slot, armature: bpy.types.O
 # value happens to sit at that index if the ordering ever changed.
 def _linearInterpolationValue() -> int:
     try:
-        return bpy.types.Keyframe.bl_rna.properties['interpolation'].enum_items['LINEAR'].value
+        prop = bpy.types.Keyframe.bl_rna.properties['interpolation']
+        return prop.enum_items['LINEAR'].value  # pyright: ignore[reportAttributeAccessIssue]
     except Exception:
         return 1
 
@@ -305,7 +308,9 @@ def _bakeAction(action: bpy.types.Action, slot, skeleton: "MdxaSkel", armature: 
             previous = quats[index][-1] if quats[index] else None
             if previous is not None and (quat.w * previous[0] + quat.x * previous[1]
                                          + quat.y * previous[2] + quat.z * previous[3]) < 0.0:
-                quat = -quat
+                # Negated component-wise rather than with unary minus: mathutils supports it,
+                # but the bpy stubs the CI type checks against do not declare __neg__.
+                quat = mathutils.Quaternion((-quat.w, -quat.x, -quat.y, -quat.z))
             locs[index].append((loc.x, loc.y, loc.z))
             quats[index].append((quat.w, quat.x, quat.y, quat.z))
 
@@ -978,7 +983,7 @@ class MdxaAnimation:
 
             for sequenceNum, sequence in enumerate(animations.sequences):
                 action = bpy.data.actions.new(sequence.name)
-                action.g2_sequence_prop.loop_frame = sequence.loop  # pyright: ignore[reportAttributeAccessIssue]
+                action.g2_sequence_prop.loop_start_frame = sequence.loop  # pyright: ignore[reportAttributeAccessIssue]
                 action.g2_sequence_prop.fps = sequence.fps  # pyright: ignore[reportAttributeAccessIssue]
                 # The sequence's true length, so the cfg export does not have to reconstruct it
                 # from the strip (which cannot be shorter than one frame of length) or from the
@@ -1505,7 +1510,7 @@ class GLA:
                 checkFrames = JAG2PoseSampler.verificationFrames(
                     scene.frame_start, scene.frame_end)
                 ok, why = candidate.verifyAgainst(
-                    scene, poseBones, checkFrames, compressFrame)
+                    downcast(bpy.types.Scene, scene), poseBones, checkFrames, compressFrame)
                 if ok:
                     sampler = candidate
                     print("Export: fast path verified on {} frames ({}), skipping "

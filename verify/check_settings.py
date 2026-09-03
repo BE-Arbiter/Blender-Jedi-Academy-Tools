@@ -44,7 +44,12 @@ class _FakeOperatorBase:
 
 
 bpy.types = types.SimpleNamespace(
-    AddonPreferences=object, Operator=_FakeOperatorBase)
+    AddonPreferences=object, Operator=_FakeOperatorBase, Context=object)
+mathutils = types.ModuleType("mathutils")
+mathutils.Matrix = object
+mathutils.Vector = object
+sys.modules["mathutils"] = mathutils
+
 bpy.utils = types.SimpleNamespace(register_class=lambda c: None,
                                   unregister_class=lambda c: None)
 bpy.context = types.SimpleNamespace(preferences=None)

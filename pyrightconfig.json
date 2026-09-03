@@ -1,5 +1,7 @@
 {
-    "include": ["."],
+    "include": [
+        "."
+    ],
     "exclude": [
         "build",
         "**/__pycache__",
@@ -10,7 +12,8 @@
         "JAMd3Export.py",
         "JAPatchExport.py",
         "JARoffExport.py",
-        "JARoffImport.py"
+        "JARoffImport.py",
+        "verify"
     ],
     "typeCheckingMode": "standard",
     "pythonVersion": "3.11"

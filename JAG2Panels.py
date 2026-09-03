@@ -42,14 +42,21 @@ class G2Props(bpy.types.PropertyGroup):
 
 
 # Per-Action loop/fps metadata for animation.cfg NLA import/export, mirroring G2Props above --
-# a nested PropertyGroup + PointerProperty rather than raw bpy.types.Action.loop_frame/fps
+# a nested PropertyGroup + PointerProperty rather than raw bpy.types.Action.loop_start_frame/fps
 # assignment, since that raw-assignment style is exactly what Blender 5.0 broke for g2_prop
 # (see the legacy migration below).
 class G2SequenceProps(bpy.types.PropertyGroup):
     # An int, not a bool: in animation.cfg this column is the frame to loop back to, which JKA
     # reads with atoi into animations[i].loopFrames. Storing it as a bool collapsed every value
     # other than -1 to 0 on a round trip. -1 means "no loop".
-    loop_frame: IntProperty(
+    #
+    # DELIBERATELY RENAMED from the old boolean "loop_frame". Blender keeps the stored value of
+    # a property across a type change, so a .blend saved with the bool version would read False
+    # back as the integer 0 - and 0 means "loop back to frame 0", not "no loop". Under the new
+    # name the old data is simply absent and the -1 default applies, which is what a stored
+    # False meant. A stored True (the old code could only ever write 0 or -1) is lost, which is
+    # the safer direction.
+    loop_start_frame: IntProperty(
         name="Loop Frame",
         default=-1,
         description="Frame this sequence loops back to, or -1 for no loop"
@@ -213,7 +220,7 @@ class G2NLAPropertiesPanel(bpy.types.Panel):
         assert strip is not None and strip.action is not None
         props = strip.action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
         layout.use_property_split = True
-        layout.prop(props, "loop_frame")
+        layout.prop(props, "loop_start_frame")
         layout.prop(props, "fps")
 
 
@@ -235,7 +242,7 @@ class G2ActionPropertiesPanel(bpy.types.Panel):
         assert action is not None
         props = action.g2_sequence_prop  # pyright: ignore[reportAttributeAccessIssue]
         layout.use_property_split = True
-        layout.prop(props, "loop_frame")
+        layout.prop(props, "loop_start_frame")
         layout.prop(props, "fps")
 
 

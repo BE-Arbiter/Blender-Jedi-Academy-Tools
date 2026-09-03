@@ -36,12 +36,14 @@ fast path against real frame_set samples before the export relies on it.
 """
 
 from .mod_reload import reload_modules
-reload_modules(locals(), __package__, [], [])  # nopep8
+reload_modules(locals(), __package__, [], [".casts"])  # nopep8
 
 import bpy
 import struct
 import mathutils
 from typing import Dict, List, Optional, Tuple
+
+from .casts import downcast, optional_cast
 
 # Channels the sampler reconstructs, with the value used when no FCurve supplies one.
 _LOC = "location"
@@ -138,7 +140,7 @@ class PoseSampler:
         self._reason: Optional[str] = None
         self._curveCache: Dict[Tuple[str, Optional[str]], _ActionCurves] = {}
 
-        armatureData = armatureObject.data
+        armatureData = downcast(bpy.types.Armature, armatureObject.data)
         self.bones = [armatureData.bones[name] for name in boneNames]
         self.rest = [bone.matrix_local.copy() for bone in self.bones]
         # Per bone, the escaped data path prefix used by pose bone FCurves.
@@ -153,11 +155,11 @@ class PoseSampler:
 
     def _findUnsupported(self) -> Optional[str]:
         obj = self.object
-        animData = obj.animation_data
-        if animData is None:
+        if obj.animation_data is None:
             return "the armature has no animation data"
+        animData = optional_cast(bpy.types.AnimData, obj.animation_data)
 
-        for poseBone in obj.pose.bones:
+        for poseBone in optional_cast(bpy.types.Pose, obj.pose).bones:
             if len(poseBone.constraints):
                 return f"bone '{poseBone.name}' has constraints"
             if poseBone.rotation_mode != 'QUATERNION':
@@ -219,7 +221,7 @@ class PoseSampler:
 
     def _collectLayers(self):
         """Strips to consider, bottom track first. Later entries override earlier ones."""
-        animData = self.object.animation_data
+        animData = optional_cast(bpy.types.AnimData, self.object.animation_data)
         soloTracks = [t for t in animData.nla_tracks if t.is_solo]
         tracks = soloTracks if soloTracks else [t for t in animData.nla_tracks if not t.mute]
         layers = []
@@ -258,7 +260,7 @@ class PoseSampler:
     def _activeAt(self, frame: float):
         """The (curves, actionFrame) pair that wins at this frame, or None for the rest pose."""
         winner = None
-        animData = self.object.animation_data
+        animData = optional_cast(bpy.types.AnimData, self.object.animation_data)
         for layer in self._layers:
             if layer is None:
                 winner = (self._curvesFor(animData.action,

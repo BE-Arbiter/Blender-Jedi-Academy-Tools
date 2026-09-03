@@ -38,7 +38,9 @@ reload_modules(locals(), __package__, [], [])  # nopep8
 
 import bpy
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
+
+from .casts import OperatorReturnItems
 
 # Property names that are never remembered, per operator - anything path-like that the file
 # browser owns, plus properties whose value should not silently carry over.
@@ -48,7 +50,8 @@ _NEVER_REMEMBER = {"filepath", "filename", "directory", "files"}
 class Preferences(bpy.types.AddonPreferences):
     """Holds the remembered settings. Blender writes these to userpref.blend, so they survive
     a restart - unlike operator properties, which only live for the session."""
-    bl_idname = __package__
+    # __package__ is Optional[str] to a type checker; it is always set for an addon module.
+    bl_idname = __package__ or "jediacademy"
 
     remember: bpy.props.BoolProperty(  # pyright: ignore [reportInvalidTypeForm]
         name="Remember import/export settings",
@@ -75,7 +78,7 @@ class ForgetSettings(bpy.types.Operator):
     bl_label = "Forget Saved Settings"
     bl_options = {'REGISTER'}
 
-    def execute(self, context):
+    def execute(self, context: bpy.types.Context) -> Set[OperatorReturnItems]:
         forget()
         self.report({'INFO'}, "Jedi Academy import/export settings forgotten")
         return {'FINISHED'}

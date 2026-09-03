@@ -136,7 +136,7 @@ class AnimationSequence():
         new_frame.name = nla_strip.action.name
         new_frame.start_frame = int(nla_strip.frame_start + offset)
         new_frame.num_frames = _strip_num_frames(nla_strip, length_difference)
-        new_frame.loop = int(nla_strip.action.g2_sequence_prop.loop_frame)  # pyright: ignore[reportAttributeAccessIssue]
+        new_frame.loop = int(nla_strip.action.g2_sequence_prop.loop_start_frame)  # pyright: ignore[reportAttributeAccessIssue]
         new_frame.fps = int(nla_strip.action.g2_sequence_prop.fps)  # pyright: ignore[reportAttributeAccessIssue]
         return new_frame
 
