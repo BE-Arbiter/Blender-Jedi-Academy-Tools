@@ -46,16 +46,30 @@ class G2Props(bpy.types.PropertyGroup):
 # assignment, since that raw-assignment style is exactly what Blender 5.0 broke for g2_prop
 # (see the legacy migration below).
 class G2SequenceProps(bpy.types.PropertyGroup):
-    loop_frame: BoolProperty(
-        name="Loop",
-        default=False,
-        description="Whether this sequence will loop"
+    # An int, not a bool: in animation.cfg this column is the frame to loop back to, which JKA
+    # reads with atoi into animations[i].loopFrames. Storing it as a bool collapsed every value
+    # other than -1 to 0 on a round trip. -1 means "no loop".
+    loop_frame: IntProperty(
+        name="Loop Frame",
+        default=-1,
+        description="Frame this sequence loops back to, or -1 for no loop"
     )  # type: ignore
 
     fps: IntProperty(
         name="FPS",
         default=30,
         description="Sequence playback fps"
+    )  # type: ignore
+
+    # The sequence's true length in frames. Needed because an NLA strip cannot be shorter than
+    # one frame of length, so a 1-frame sequence always occupies two - the strip's extent alone
+    # cannot tell the two apart. 0 means "unknown", and the cfg export falls back to measuring
+    # the strip.
+    num_frames: IntProperty(
+        name="Frames",
+        default=0,
+        min=0,
+        description="Number of frames in this sequence (0 = derive it from the strip)"
     )  # type: ignore
 
 

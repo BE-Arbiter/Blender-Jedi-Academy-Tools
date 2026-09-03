@@ -36,6 +36,21 @@ SURFACEFLAG_OFF = 0b10
 
 BONELENGTH = 4
 
+# Stretching a parent bone to its child's head must not produce a degenerate bone - Blender
+# silently deletes zero-length bones when leaving edit mode. Well below any real bone spacing.
+MIN_BONE_LENGTH = 0.01
+
+# Whether a parent bone is drawn stretched to its single child even when the bone is NOT
+# rigidly connected. Off by default, matching the original importer, where stretching only
+# happened together with use_connect.
+#
+# Turning it on makes a full _humanoid.gla import look less like a field of stubs, but it is
+# not free: it changes bone.length, and Blender's pose evaluation places a child's local
+# origin at its parent's TAIL. Measured against a reference import, the posed-frame error grew
+# monotonically with the number of stretched ancestors a bone had - 0 ancestors gave exactly
+# 0.0000, 6 gave 1.4828. Appearance, at the cost of exact animation data.
+STRETCH_BONES_TO_CHILDREN = False
+
 # 0.999 = cos 2.5, 0.996 = cos 5, 0.990 = cos 8
 # 0.999 is okay for the player model (_humanoid), but the atst is somewhat less exact
 # cosine of allowed angle between bone directions for them to be considered equal

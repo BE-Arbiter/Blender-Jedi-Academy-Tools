@@ -76,23 +76,54 @@ def getName(object: bpy.types.Object) -> str:
     return object.name
 
 
+class _MeshExportContext:
+    """Per-mesh values that MdxmVertex.loadFromBlender and getBoneWeights used to recompute for
+    every single vertex: a scene_root lookup plus a 4x4 inversion, two quaternion conversions,
+    a scan over the mesh's modifier stack, and (in the envelope path) another 4x4 inversion.
+
+    Only the *constant* results are hoisted - the per-vertex multiplication order is left exactly
+    as it was, so the exported floats stay bit-identical rather than merely equivalent."""
+
+    def __init__(self, meshObject: bpy.types.Object, armatureObject: Optional[bpy.types.Object]):
+        self.rootMat = matrix_getter_cast(bpy_generic_cast(
+            bpy.types.Object, bpy.data.objects["scene_root"]).matrix_world).inverted()
+        self.objectMat = matrix_getter_cast(meshObject.matrix_world)
+        self.rootQuat = self.rootMat.to_quaternion()
+        self.objectQuat = self.objectMat.to_quaternion()
+
+        self.armatureObject = armatureObject
+        self.armature: Optional[bpy.types.Armature] = None
+        self.modifier: Optional[bpy.types.ArmatureModifier] = None
+        self.modifierError: Optional[str] = None
+        self.armatureWorldInv: Optional[mathutils.Matrix] = None
+
+        if armatureObject is None:
+            return
+        self.armature = downcast(bpy.types.Armature, armatureObject.data)
+        for mod in meshObject.modifiers:
+            if mod.type == 'ARMATURE':
+                if self.modifier is not None:
+                    self.modifierError = f"Multiple armature modifiers on {meshObject.name}!"
+                    return
+                self.modifier = downcast(bpy.types.ArmatureModifier, mod)
+        if self.modifier is None:
+            self.modifierError = f"{meshObject.name} has no armature modifier!"
+            return
+        if self.modifier.use_bone_envelopes:
+            self.armatureWorldInv = matrix_getter_cast(armatureObject.matrix_world).inverted()
+
+
 class GetBoneWeightException(Exception):
     pass
 
 
-def getBoneWeights(vertex: bpy.types.MeshVertex, meshObject: bpy.types.Object, armatureObject: bpy.types.Object, maxBones: int = -1):
-    # find the armature modifier
-    modifier: Optional[bpy.types.ArmatureModifier] = None
-    for mod in meshObject.modifiers:
-        if mod.type == 'ARMATURE':
-            if modifier is not None:
-                raise GetBoneWeightException(
-                    f"Multiple armature modifiers on {meshObject.name}!")
-            modifier = downcast(bpy.types.ArmatureModifier, mod)
-    if modifier is None:
-        raise GetBoneWeightException(
-            f"{meshObject.name} has no armature modifier!")
-    armature = downcast(bpy.types.Armature, armatureObject.data)
+def getBoneWeights(vertex: bpy.types.MeshVertex, meshObject: bpy.types.Object, armatureObject: bpy.types.Object, maxBones: int = -1, context: Optional["_MeshExportContext"] = None):
+    if context is None:
+        context = _MeshExportContext(meshObject, armatureObject)
+    if context.modifierError is not None:
+        raise GetBoneWeightException(context.modifierError)
+    modifier = optional_cast(bpy.types.ArmatureModifier, context.modifier)
+    armature = optional_cast(bpy.types.Armature, context.armature)
 
     # this will eventually contain the weights per bone (by name) if not 0
     weights: Dict[str, float] = {}
@@ -110,8 +141,9 @@ def getBoneWeights(vertex: bpy.types.MeshVertex, meshObject: bpy.types.Object, a
     # if there are vertex group weights, envelopes are ignored
     if len(weights) == 0 and modifier.use_bone_envelopes:
         co_meshspace = vector_getter_cast(vertex.co)
-        co_worldspace = vector_overload_cast(matrix_getter_cast(meshObject.matrix_world) @ co_meshspace)
-        co_armaspace = vector_overload_cast(matrix_getter_cast(armatureObject.matrix_world).inverted() @ co_worldspace)
+        co_worldspace = vector_overload_cast(context.objectMat @ co_meshspace)
+        co_armaspace = vector_overload_cast(
+            optional_cast(mathutils.Matrix, context.armatureWorldInv) @ co_worldspace)
         for bone in armature.bones:
             bone = bpy_generic_cast(bpy.types.Bone, bone)
             weight = bone.evaluate_envelope(co_armaspace)
@@ -126,7 +158,7 @@ def getBoneWeights(vertex: bpy.types.MeshVertex, meshObject: bpy.types.Object, a
 
     # if there are still no weights, add 1.0 for the root bone
     if len(weights) == 0:
-        weights[downcast(bpy.types.Armature, armatureObject.data).bones[0].name] = 1.0
+        weights[armature.bones[0].name] = 1.0
 
     # the combined weight must be normalized to 1
     sum = 0
@@ -426,11 +458,16 @@ class MdxmVertex:
     # vertex :: Blender MeshVertex
     # uv :: [int, int] (blender style, will be y-flipped)
     # boneIndices :: { string -> int } (bone name -> index, may be changed)
-    def loadFromBlender(self, vertex: bpy.types.MeshVertex, uv: List[float], normal: mathutils.Vector, boneIndices: Dict[str, int], meshObject: bpy.types.Object, armatureObject: Optional[bpy.types.Object]) -> Tuple[bool, ErrorMessage]:
+    def loadFromBlender(self, vertex: bpy.types.MeshVertex, uv: List[float], normal: mathutils.Vector, boneIndices: Dict[str, int], meshObject: bpy.types.Object, armatureObject: Optional[bpy.types.Object], context: Optional["_MeshExportContext"] = None) -> Tuple[bool, ErrorMessage]:
         # I'm taking the world matrix in case the object is not at the origin, but I really want the coordinates in scene_root-space, so I'm using that, too.
-        rootMat = matrix_getter_cast(bpy_generic_cast(bpy.types.Object, bpy.data.objects["scene_root"]).matrix_world).inverted()
-        co = vector_overload_cast(rootMat @ vector_overload_cast(matrix_getter_cast(meshObject.matrix_world) @ vector_getter_cast(vertex.co)))
-        normal = vector_overload_cast(rootMat.to_quaternion() @ vector_overload_cast(matrix_getter_cast(meshObject.matrix_world).to_quaternion() @ normal))
+        # rootMat/objectMat/the quaternions come from the per-mesh context now; the order of the
+        # multiplications below is unchanged, so the results stay bit-identical.
+        if context is None:
+            context = _MeshExportContext(meshObject, armatureObject)
+        co = vector_overload_cast(context.rootMat @ vector_overload_cast(
+            context.objectMat @ vector_getter_cast(vertex.co)))
+        normal = vector_overload_cast(context.rootQuat @ vector_overload_cast(
+            context.objectQuat @ normal))
         for i in range(3):
             self.co.append(co[i])
             self.normal.append(normal[i])
@@ -447,7 +484,7 @@ class MdxmVertex:
         else:
             weights = None
             try:
-                weights = getBoneWeights(vertex, meshObject, armatureObject, 4)
+                weights = getBoneWeights(vertex, meshObject, armatureObject, 4, context)
             except GetBoneWeightException as e:
                 return False, ErrorMessage(f"Could not retrieve vertex bone weights: {e}")
             self.numWeights = len(weights)
@@ -556,6 +593,8 @@ class MdxmSurface:
             bpy.context.evaluated_depsgraph_get())).to_mesh()
 
         boneIndices: Dict[str, int] = {}
+        # Built once per surface rather than per vertex; see _MeshExportContext.
+        context = _MeshExportContext(object, armatureObject)
 
         # This is a tag, use a simpler export procedure
         if surfaceData.flags & JAG2Constants.SURFACEFLAG_TAG:
@@ -567,7 +606,7 @@ class MdxmSurface:
                 vi = bpy_generic_cast(bpy.types.MeshVertex, vi)
                 vert = MdxmVertex()
                 success, message = vert.loadFromBlender(
-                    vi, [0, 0], mathutils.Vector(), boneIndices, object, armatureObject)
+                    vi, [0, 0], mathutils.Vector(), boneIndices, object, armatureObject, context)
                 if not success:
                     return False, ErrorMessage(f"Mesh {mesh.name} has invalid vertex: {message}")
                 self.vertices.append(vert)
@@ -586,6 +625,13 @@ class MdxmSurface:
                 return False, ErrorMessage("No UV coordinates found!")
 
             protoverts = []
+            # Bucketed by the two fields that are compared exactly, so only the handful of
+            # candidates that could possibly match get the tolerance test on the normal. The
+            # previous code scanned every protovert created so far for each of the three corners
+            # of every face - quadratic in vertex count, which is what made exporting dense
+            # meshes slow. Any global match must land in this bucket, and buckets preserve
+            # insertion order, so the first match found is the same one as before.
+            protovertBuckets: Dict[Tuple[int, float, float], List[int]] = {}
 
             for face in mesh.polygons:
                 triangle = []
@@ -599,10 +645,11 @@ class MdxmSurface:
                     u = uv_layer_data[loop.index].uv
                     n = vector_getter_cast(loop.normal if mesh.has_custom_normals else bpy_generic_cast(bpy.types.MeshVertex, mesh.vertices[loop.vertex_index]).normal)
 
+                    key = (v, u[0], u[1])
                     proto_found = -1
-                    for j in range(len(protoverts)):
+                    for j in protovertBuckets.get(key, ()):
                         proto = protoverts[j]
-                        if proto[0] == v and proto[1] == u and abs(proto[2][0] - n[0]) < 0.05 and abs(proto[2][1] - n[1]) < 0.05 and abs(proto[2][2] - n[2]) < 0.05:
+                        if abs(proto[2][0] - n[0]) < 0.05 and abs(proto[2][1] - n[1]) < 0.05 and abs(proto[2][2] - n[2]) < 0.05:
                             proto_found = j
                             break
 
@@ -612,9 +659,10 @@ class MdxmSurface:
                         vertex = MdxmVertex()
                         uv_arg: List[float] = u  # pyright: ignore [reportAssignmentType]  # vector supports slices
                         success, message = vertex.loadFromBlender(
-                            mesh.vertices[v], uv_arg, n, boneIndices, object, armatureObject)
+                            mesh.vertices[v], uv_arg, n, boneIndices, object, armatureObject, context)
                         if not success:
                             return False, ErrorMessage(f"Surface has invalid vertex: {message}")
+                        protovertBuckets.setdefault(key, []).append(len(protoverts))
                         protoverts.append((v, u, n))
                         self.vertices.append(vertex)
                         triangle.append(len(protoverts) - 1)
