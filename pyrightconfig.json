@@ -16,5 +16,6 @@
         "verify"
     ],
     "typeCheckingMode": "standard",
-    "pythonVersion": "3.11"
+    "pythonVersion": "3.11",
+    "reportMissingModuleSource": false
 }

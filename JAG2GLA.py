@@ -33,8 +33,8 @@ from typing import BinaryIO, Dict, List, Optional, Tuple
 from enum import Enum
 import struct
 import time
-import bpy # pyright: ignore[reportMissingImports]
-import mathutils # pyright: ignore[reportMissingImports]
+import bpy
+import mathutils
 
 PROFILE = False
 # show progress & remaining time every 30 seconds.
