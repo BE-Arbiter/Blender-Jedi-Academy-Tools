@@ -21,4 +21,5 @@
     "reportAttributeAccessIssue": "warning",
     "reportOptionalSubscript": "warning",
     "reportGeneralTypeIssues": "warning",
+    "reportArgumentType": "warning"
 }
