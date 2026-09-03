@@ -83,7 +83,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pyright fake-bpy-module-4.5
-      - run: pyright --pythonpath "$(command -v python3)"
+      - run: pyright
 
   pep8:
     # See smoke-test above: skip on a schedule tick that doesn't need a nightly build.
